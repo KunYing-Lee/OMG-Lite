@@ -50,6 +50,9 @@ def test_default_and_opt_in_fk_configuration_and_backward():
         default = compose(config_name="train")
         enabled = compose(config_name="train", overrides=["loss=fk"])
     assert default.representation.feat_dim == default.denoiser.input_dim == 38
+    assert default.model.text_encoder.frozen_eval is True
+    assert default.model.text_encoder.cache_max_entries == 4096
+    assert default.model.text_encoder.cache_device == "encoder"
     assert default.representation.include_body_positions is False
     assert default.representation.rot6d_gradient_mode == "vanilla"
     assert all(v == 0 for k, v in default.loss.items() if k != "_target_")

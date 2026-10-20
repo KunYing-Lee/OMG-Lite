@@ -9,8 +9,9 @@ python -m omg.cli.generation.train exp=base \
   model.text_encoder.cache_device=encoder
 ```
 
-Defaults remain `frozen_eval=false` and `cache_max_entries=0`, preserving existing
-training semantics. The cache requires `frozen_eval=true`. Existing checkpoints
+The base experiment enables `frozen_eval=true`, `cache_max_entries=4096`, and
+`cache_device=encoder`. The generic model defaults remain `frozen_eval=false` and
+`cache_max_entries=0` for explicitly selected legacy experiments. The cache requires `frozen_eval=true`. Existing checkpoints
 load without changes to weight keys; cache contents are transient.
 
 ## Important experiment difference
