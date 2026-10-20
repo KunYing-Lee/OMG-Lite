@@ -21,6 +21,11 @@
 🚩 **Jul. 2026**: OMG won **ExWBC@RSS 2026 Oral, RoboData@RSS 2026 Spotlight**, congrats!<br>
 🚩 **Jun. 2026**: We release preprint, code and data for [OMG](https://arxiv.org/abs/2606.10340).
 
+## OMG-Lite 38D branch
+
+Training defaults to 38D pose diffusion with optional differentiable FK loss.
+See [representation, dataset reuse and statistics migration](docs/pose38.md).
+
 ## Pipeline
 
 The usual end-to-end workflow is:

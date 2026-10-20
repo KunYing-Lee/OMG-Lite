@@ -6,6 +6,7 @@ rotation_representation: ${representation.rotation_representation}
 dataset_opts:
   train:
     omg_data_materialized_train:
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
       root: ${paths.materialized_root}/omg_episode_cache_v2_rot6d_seq60_hist10_k1
       source_repo_id: &source_repo_id THU-MARS/OMG-Data
@@ -13,6 +14,7 @@ dataset_opts:
       split: train
   val:
     omg_data_materialized_val:
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
       root: ${paths.materialized_root}/omg_episode_cache_v2_rot6d_seq60_hist10_k1
       source_repo_id: *source_repo_id
@@ -20,6 +22,7 @@ dataset_opts:
       split: val
   test:
     omg_data_materialized_test:
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
       root: ${paths.materialized_root}/omg_episode_cache_v2_rot6d_seq60_hist10_k1
       source_repo_id: *source_repo_id

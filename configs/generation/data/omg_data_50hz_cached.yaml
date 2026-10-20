@@ -5,6 +5,7 @@ rotation_representation: ${representation.rotation_representation}
 dataset_opts:
   train:
     omg_50hz_train:
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
       root: ${paths.materialized_root}/omg_50hz_text_rot6d_seq100_hist10_k1
       source_repo_id: local/OMG-Data-50Hz
@@ -12,6 +13,7 @@ dataset_opts:
       split: train
   val:
     omg_50hz_val:
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
       root: ${paths.materialized_root}/omg_50hz_text_rot6d_seq100_hist10_k1
       source_repo_id: local/OMG-Data-50Hz
@@ -19,6 +21,7 @@ dataset_opts:
       split: val
   test:
     omg_50hz_test:
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
       root: ${paths.materialized_root}/omg_50hz_text_rot6d_seq100_hist10_k1
       source_repo_id: local/OMG-Data-50Hz

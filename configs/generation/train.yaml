@@ -1,9 +1,9 @@
 defaults:
   - data: omg_data_lerobot
-  - representation: 125d
+  - representation: 38d
   - denoiser: transformer
   - diffusion: guided_x0
-  - loss: full
+  - loss: diffusion_only
   - model: motion_generator
   - trainer: 1gpu
   - logger: none

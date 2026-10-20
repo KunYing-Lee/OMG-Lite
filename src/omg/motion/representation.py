@@ -31,6 +31,7 @@ class G1MotionRepresentation(nn.Module):
         clip_std_min: float = 1e-6,
         rotation_representation: str = "quat",
         rot6d_gradient_mode: str = "vanilla",
+        include_body_positions: bool = True,
     ):
         super().__init__()
         self.feat_dim = feat_dim
@@ -42,7 +43,10 @@ class G1MotionRepresentation(nn.Module):
             canonical_frame_idx=canonical_frame_idx,
             rotation_representation=rotation_representation,
             rot6d_gradient_mode=rot6d_gradient_mode,
+            include_body_positions=include_body_positions,
         )
+        if self.codec.feature_dim != feat_dim:
+            raise ValueError(f"Codec dimension {self.codec.feature_dim} differs from feat_dim={feat_dim}")
         self.num_prev_states = num_prev_states
         self.rotation_representation = self.codec.rotation_representation
         self.rot6d_gradient_mode = self.codec.rot6d_gradient_mode

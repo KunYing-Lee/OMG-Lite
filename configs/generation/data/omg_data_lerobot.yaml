@@ -6,6 +6,7 @@ rotation_representation: ${representation.rotation_representation}
 dataset_opts:
   train:
     omg_lerobot_train: &dataset_defaults
+      include_body_positions: ${representation.include_body_positions}
       _target_: omg.data.lerobot_dataset.LeRobotG1MotionDataset
       dataset_root: ${paths.data_root}
       repo_id: THU-MARS/OMG-Data
