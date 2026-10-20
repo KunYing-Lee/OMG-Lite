@@ -1,4 +1,4 @@
-> Historical 1-second schedule validation at `aa5acd2`. For the current 0.5-second schedule, see [half_second_validation.md](half_second_validation.md).
+> Historical 1-second schedule validation at `aa5acd2`. For the 0.5-second comparison, see [half_second_validation.md](half_second_validation.md).
 
 # Native50 pipeline validation — 2026-10-20
 

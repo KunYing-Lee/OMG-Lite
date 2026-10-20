@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-from omg.pipeline.schedule import PERIOD, REQUEST, PlanTimeline
+from omg.pipeline.schedule import Schedule, PlanTimeline
 from omg.pipeline.tracker import Tracker
 from omg.realtime.policy import PreviewPolicy
 from omg.realtime.reference_stream import ReferenceReceiver, encode_window
@@ -21,7 +21,9 @@ p = argparse.ArgumentParser()
 p.add_argument("--plans", required=True)
 p.add_argument("--tracker", required=True)
 p.add_argument("--output", required=True)
+p.add_argument("--switch-seconds", type=float, default=1.0)
 a = p.parse_args()
+schedule = Schedule(a.switch_seconds)
 root = Path(a.plans)
 out = Path(a.output)
 out.mkdir(parents=True, exist_ok=True)
@@ -33,7 +35,7 @@ session = ort.InferenceSession(
 )
 results = {}
 for name in ["walk", "squat", "hands"]:
-    plans = [np.load(root / name / f"plan_{i:03d}.npz")["qpos"] for i in range(7)]
+    plans = [np.load(root / name / f"plan_{i:03d}.npz")["qpos"] for i in range(1 + sum(schedule.requests_at(f) for f in range(150)))]
     history = np.load(root / name / "rollout.npz")["initial_history"]
     states = []
     for latency in [0, 0.03, 0.05, 0.07]:
@@ -44,7 +46,7 @@ for name in ["walk", "squat", "hands"]:
             runner.model, runner.g1_handles, history, fps=50
         )
         runner.reset(initial, vel)
-        timeline = PlanTimeline(plans[0])
+        timeline = PlanTimeline(plans[0], schedule)
         tracker = Tracker(runner)
         tracker.activate(timeline.qpos)
         receiver = ReferenceReceiver(runner.holomotion_handles.onnx_to_g1)
@@ -61,7 +63,7 @@ for name in ["walk", "squat", "hands"]:
                 tracker.activate(timeline.qpos)
                 ready = None
             timeline.check_frame(frame)
-            if frame % PERIOD == REQUEST:
+            if timeline.schedule.requests_at(frame):
                 r = timeline.request(frame)
                 if latency == 0:
                     timeline.accept(r, plans[r.plan_id], current_frame=frame)
@@ -69,7 +71,7 @@ for name in ["walk", "squat", "hands"]:
                 else:
                     ready = frame / 50 + latency
             if latency == 0:
-                state = tracker.step(frame, frame // PERIOD)
+                state = tracker.step(frame, frame // timeline.schedule.period)
                 action = runner.last_action
             else:
                 features, cursor = receiver.consume(

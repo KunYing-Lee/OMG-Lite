@@ -7,11 +7,13 @@ are also supported. See [pose representation](docs/pose38.md).
 ## One pipeline
 
 - Generate 100 frames (2 seconds), conditioned on 10 history frames.
-- At local frame 0, request the next plan using **raw plan frames 15–24**.
-- Execute the old plan through frame 24; new plan frame 0 starts at frame 25 (every 0.5 seconds).
-- Publish the new future reference as soon as it is ready. HoloMotion previews
-  10 frames and its velocity features read one additional sample, so the plan
-  must arrive **before the frame-14 control tick** (280ms after request).
+- Configure `--switch-seconds` (default **1.0**, minimum **0.5**, maximum **2.0**).
+  Values must be exact 20ms frame increments; invalid values are rejected.
+- For a period of P frames, request at P−25 using **raw frames P−10 through P−1**;
+  new plan frame 0 starts at P. Generation always starts 0.5s before switching.
+- Publish the new future reference as soon as ready. The tracker previews ten
+  frames and velocity needs one more sample: accept before consuming frame P−11.
+  This leaves 280ms for inference and transport at every supported period.
 - `sync` pauses simulation during inference. `async` continues tracking with
   wall-clock deadlines. They share the same raw-plan timeline.
 - No interpolation, alignment, smoothing, skipped generated frames, or late
@@ -61,6 +63,7 @@ python -m omg.cli.pipeline.main \
   --text 'walk forward' --mode sync --frames 500 --output outputs/sync_walk
 ```
 
+Use `--switch-seconds 0.5` for half-second switching, or omit it for one second.
 Use `--mode async` for real wall-clock execution with a persistent, independent
 planner process so inference does not block the tracker process. Both keep 50 DDIM steps and
 CFG2.5. The seed NPZ must contain `qpos_36` and scalar `fps=50`; at least ten

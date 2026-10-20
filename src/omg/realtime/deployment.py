@@ -8,11 +8,14 @@ this adapter never holds, extrapolates, skips, or silently changes the schedule.
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from omg.pipeline.schedule import PERIOD, REQUEST, PlanTimeline, motion
+from omg.pipeline.schedule import Schedule, PlanTimeline, motion
 
 
 class DeploymentBridge:
-    def __init__(self, planner, text, *, clock=time.monotonic):
+    def __init__(self, planner, text, *, clock=time.monotonic, schedule=Schedule()):
+        self.schedule = schedule
+        if hasattr(planner, "schedule") and planner.schedule != schedule:
+            raise ValueError("Planner and bridge schedules must match")
         self.planner = planner
         self.text = text
         self.clock = clock
@@ -26,7 +29,7 @@ class DeploymentBridge:
             raise RuntimeError("Already active")
         # Startup is outside the active control clock; existing controller stays armed but idle.
         first = self.planner.plan(motion(history, 10), self.text, 0)
-        self.timeline = PlanTimeline(first["qpos"])
+        self.timeline = PlanTimeline(first["qpos"], self.schedule)
         self.origin = self.clock()
 
     def _generate(self, request):
@@ -48,7 +51,7 @@ class DeploymentBridge:
             self.timeline.accept(request, result["qpos"], current_frame=frame)
             self.future = None
         self.timeline.check_frame(frame)
-        if frame % PERIOD == REQUEST:
+        if self.schedule.requests_at(frame):
             request = self.timeline.request(frame)
             self.future = self.pool.submit(self._generate, request)
         self.frame += 1

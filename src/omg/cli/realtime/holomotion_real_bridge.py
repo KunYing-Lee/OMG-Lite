@@ -4,6 +4,7 @@ import argparse
 import time
 import uuid
 
+from omg.pipeline.schedule import Schedule
 from omg.realtime.deployment import DeploymentBridge
 from omg.realtime.native import RemotePlanner
 from omg.realtime.reference_stream import ReferencePublisher
@@ -14,9 +15,13 @@ def main():
     p.add_argument("--connect", required=True, help="GPU planner endpoint")
     p.add_argument("--publish-bind", default="ipc:///tmp/omg-preview-v2")
     p.add_argument("--text", required=True)
+    p.add_argument("--switch-seconds", type=float, default=1.0)
     args = p.parse_args()
+    schedule = Schedule(args.switch_seconds)
     publisher = ReferencePublisher(args.publish_bind, uuid.uuid4().hex)
-    bridge = DeploymentBridge(RemotePlanner(args.connect), args.text)
+    bridge = DeploymentBridge(
+        RemotePlanner(args.connect, schedule), args.text, schedule=schedule
+    )
     try:
         # The policy process supplies measured history only after its hardware arming gate.
         history = publisher.wait_armed_history()
@@ -25,7 +30,7 @@ def main():
             time.sleep(max(0, bridge.origin + bridge.frame / 50 - time.monotonic()))
             qpos, frame = bridge.tick()
             publisher.activate(qpos)
-            publisher.step(frame, frame // 50)
+            publisher.step(frame, frame // schedule.period)
     finally:
         bridge.close()
         publisher.close()

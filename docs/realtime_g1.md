@@ -1,17 +1,32 @@
 # Native 50Hz G1 deployment
 
 This path uses the same `PlanTimeline` as simulation. Startup history contains
-10 measured 50Hz qpos36 samples. Each subsequent request uses raw plan 15–24,
-starts at phase0, and replaces the reference suffix at phase25. The reply
-must be available before phase14: ten preview frames plus one derivative sample.
-The complete transport/inference budget is 280ms; switching happens every 500ms.
+10 measured 50Hz qpos36 samples. Configure `--switch-seconds` on **both** the
+GPU server and the Orin bridge; the default is 1.0s. Valid values are 0.5–2.0s
+in 20ms increments. Protocol metadata carries the period, and mismatches are
+rejected before inference, including initialization.
+
+For period P frames, request at P−25 with raw history [P−10:P], and switch at P.
+The reply must be accepted before consuming phase P−11: ten preview frames plus
+one derivative sample. The total inference/transport budget stays 280ms.
+
+| Switch period | Request frame | History frames | Switch frame | Preview deadline |
+|---|---:|---|---:|---:|
+| 0.5s | 0 | 15–24 | 25 | 14 |
+| 0.76s | 13 | 28–37 | 38 | 27 |
+| 1.0s (default) | 25 | 40–49 | 50 | 39 |
+| 2.0s | 75 | 90–99 | 100 | 89 |
+
+The Python API uses the same immutable `Schedule(switch_seconds=...)` in
+`run`, `PlanTimeline`, `RemotePlanner`, `PlannerService`, and `DeploymentBridge`.
+Prediction remains 100 frames and history remains 10 frames regardless of period.
 
 ## GPU planner
 
 ```bash
 PYTHONPATH=src python -m omg.cli.realtime.planner_server \
   --config /path/to/resolved_training_config.yaml \
-  --checkpoint /path/to/native50.ckpt --bind tcp://0.0.0.0:5571
+  --checkpoint /path/to/native50.ckpt --bind tcp://0.0.0.0:5571 --switch-seconds 1.0
 ```
 
 Strict checkpoint loading, architecture contract validation, history10,
@@ -23,7 +38,7 @@ horizon100, 50 DDIM steps, CFG2.5. Native checkpoints carry their representation
 ```bash
 PYTHONPATH=src python -m omg.cli.realtime.holomotion_real_bridge \
   --connect tcp://GPU_HOST:5571 --text 'walk forward' \
-  --publish-bind ipc:///tmp/omg-preview-v2
+  --publish-bind ipc:///tmp/omg-preview-v2 --switch-seconds 1.0
 ```
 
 The bridge waits for measured history from an **already armed** HoloMotion
@@ -67,3 +82,9 @@ adapter with the same MuJoCo dynamics as the normal tracker. Actual network
 latency, Orin throughput, controller integration and physical acceptance still
 require deployment-side verification. Do not interpret simulated latency as
 measured inference speed.
+
+Configurable-period validation (2026-10-21): 219 tests passed (one existing
+PyTorch scheduler deprecation warning). Schedule and ZMQ transport tests cover
+0.5, 0.76, 1.0 and 2.0 seconds; deployment preview parity covers simulated
+30/50/70/210ms inference delays. This validates scheduling and protocol behavior,
+not new motion-quality benchmarks or physical deployment acceptance.
