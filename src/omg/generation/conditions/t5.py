@@ -17,10 +17,14 @@ class FrozenT5TextEncoder(nn.Module):
         output_dim: int = 768,
         frozen_eval: bool = False,
         cache_max_entries: int = 0,
+        cache_device: str = "cpu",
     ):
         super().__init__()
         self.frozen_eval = bool(frozen_eval)
         self.cache_max_entries = int(cache_max_entries)
+        if cache_device not in {"cpu", "encoder"}:
+            raise ValueError("cache_device must be cpu or encoder")
+        self.cache_device = cache_device
         if self.cache_max_entries < 0:
             raise ValueError("cache_max_entries must be nonnegative")
         if self.cache_max_entries and not self.frozen_eval:
@@ -123,7 +127,7 @@ class FrozenT5TextEncoder(nn.Module):
         autocast = torch.is_autocast_enabled(device.type)
         signature = (device, parameter.dtype, autocast,
                      torch.get_autocast_dtype(device.type) if autocast else None,
-                     self.max_length)
+                     self.max_length, self.cache_device)
         if signature != self._cache_signature:
             self.clear_cache()
             self._cache_signature = signature
@@ -140,7 +144,9 @@ class FrozenT5TextEncoder(nn.Module):
         self.cache_hits += len(captions) - len(missing)
         if missing:
             hidden, mask = self._encode(missing, device)
-            hidden, mask = hidden.detach().cpu(), mask.cpu()
+            hidden = hidden.detach()
+            if self.cache_device == "cpu":
+                hidden, mask = hidden.cpu(), mask.cpu()
             for index, caption in enumerate(missing):
                 # Clone each row so eviction really releases its batch storage.
                 entry = (hidden[index].clone(), mask[index].clone())

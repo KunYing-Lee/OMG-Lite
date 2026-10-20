@@ -5,7 +5,8 @@ Opt in with:
 ```bash
 python -m omg.cli.generation.train exp=base \
   model.text_encoder.frozen_eval=true \
-  model.text_encoder.cache_max_entries=4096
+  model.text_encoder.cache_max_entries=4096 \
+  model.text_encoder.cache_device=encoder
 ```
 
 Defaults remain `frozen_eval=false` and `cache_max_entries=0`, preserving existing
@@ -26,13 +27,16 @@ optimization. Checkpoints do not retain a cache or sampler/RNG continuity.
 
 ## Cache contract
 
-Each DDP rank has a bounded CPU LRU cache keyed by the exact caption string. It
+Each DDP rank has a bounded LRU cache keyed by the exact caption string. It
 stores the frozen encoder's unprojected hidden states and tokenizer attention mask.
 Max-length padding, truncation, EOS and empty-caption behavior remain unchanged.
 Duplicate misses are encoded once per call. The optional trainable projection and
 per-call CFG/text mask are applied after lookup, so projection gradients are
 preserved. Precision/autocast or device changes and weight reloads invalidate the
 cache. The cache rejects an encoder in training mode.
+
+`cache_device=cpu` stores entries in host RAM; `cache_device=encoder` stores them
+on the encoder device, avoiding host-to-device copies on cache hits.
 
 At max_length=50 and hidden_dim=768, 4096 FP32 entries occupy approximately 600 MiB
 per rank plus masks and Python metadata (about 4.7 GiB across eight ranks). BF16

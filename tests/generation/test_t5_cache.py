@@ -49,7 +49,9 @@ def encoder(monkeypatch):
                                frozen_eval=True, cache_max_entries=2)
 
 
-def test_cache_matches_uncached_with_duplicates_mask_null_and_projection_gradients(encoder):
+@pytest.mark.parametrize("cache_device", ["cpu", "encoder"])
+def test_cache_matches_uncached_with_duplicates_mask_null_and_projection_gradients(encoder, cache_device):
+    encoder.cache_device = cache_device
     encoder.train()
     assert not encoder.encoder.training and encoder.proj.training
     for captions, mask, null in [(["walk", "run", "walk"], [True, False, True], False),

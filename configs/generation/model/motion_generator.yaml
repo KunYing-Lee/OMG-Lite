@@ -11,6 +11,7 @@ text_encoder:
   output_dim: 768
   frozen_eval: false
   cache_max_entries: 0
+  cache_device: cpu
 diffusion_target: future
 condition_dim: ${denoiser.hidden_dim}
 text_mask_prob: 0.3
