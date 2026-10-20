@@ -2,24 +2,32 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
-from omg.pipeline.schedule import motion
+from omg.pipeline.schedule import Schedule, motion
 from omg.realtime.protocol import MotionPlanChunk, RobotStateRequest
 
 
 class PlannerService:
-    def __init__(self, planner):
+    def __init__(self, planner, schedule=None):
+        schedule = Schedule() if schedule is None else schedule
+        self.schedule = schedule
         self.planner = planner
 
     def plan(self, request):
         if request.history_fps != 50 or not request.prompt:
             raise ValueError("Native 50Hz history and text required")
+        if request.metadata.get("period_frames") != self.schedule.period:
+            raise ValueError("Planner and client schedules must match")
         history = motion(request.qpos_36_history, 10)
         plan_id = int(request.metadata["plan_id"])
         switch = int(request.metadata["switch_frame"])
         if plan_id == 0:
             if switch != 0 or request.tracker_frame != 0:
                 raise ValueError("Invalid initialization")
-        elif switch != plan_id * 50 or request.tracker_frame != switch - 25:
+        elif (
+            switch != plan_id * self.schedule.period
+            or request.tracker_frame
+            != switch - self.schedule.period + self.schedule.request_phase
+        ):
             raise ValueError("Invalid future-history schedule")
         result = self.planner.plan(history, request.prompt, plan_id)
         return MotionPlanChunk(
@@ -30,14 +38,16 @@ class PlannerService:
             request_tracker_frame=request.tracker_frame,
             prompt=request.prompt,
             planning_latency_seconds=result["latency_s"],
-            metadata={"switch_frame": switch},
+            metadata={"switch_frame": switch, "period_frames": self.schedule.period},
         )
 
 
 class RemotePlanner:
     """Persistent connection owned exclusively by a dedicated I/O thread."""
 
-    def __init__(self, connect):
+    def __init__(self, connect, schedule=None):
+        schedule = Schedule() if schedule is None else schedule
+        self.schedule = schedule
         self.connect = connect
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.client = None
@@ -48,25 +58,34 @@ class RemotePlanner:
     def _plan(self, history, text, plan_id):
         from omg.realtime.transport import ZmqPlanClient
 
-        switch = plan_id * 50
+        switch = plan_id * self.schedule.period
         request = RobotStateRequest(
             qpos_36_history=motion(history, 10),
             history_fps=50,
-            tracker_frame=0 if plan_id == 0 else switch - 25,
+            tracker_frame=(
+                0
+                if plan_id == 0
+                else switch - self.schedule.period + self.schedule.request_phase
+            ),
             prompt=text,
-            metadata={"plan_id": plan_id, "switch_frame": switch},
+            metadata={
+                "plan_id": plan_id,
+                "switch_frame": switch,
+                "period_frames": self.schedule.period,
+            },
         )
         if self.client is None:
             self.client = ZmqPlanClient(self.connect)
         response = self.client.request_plan(
-            request, timeout_ms=30000 if plan_id == 0 else 280
+            request, timeout_ms=30000 if plan_id == 0 else self.schedule.budget_ms
         )
         if (
             response.fps,
             response.plan_id,
             response.request_tracker_frame,
             response.metadata.get("switch_frame"),
-        ) != (50, plan_id, request.tracker_frame, switch):
+            response.metadata.get("period_frames"),
+        ) != (50, plan_id, request.tracker_frame, switch, self.schedule.period):
             raise ValueError("Mismatched planner response")
         return {
             "qpos": motion(response.qpos_36, 100),

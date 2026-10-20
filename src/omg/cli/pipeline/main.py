@@ -10,7 +10,7 @@ import torch
 
 from omg.pipeline.checkpoint import CheckpointPlanner
 from omg.pipeline.execution import run
-from omg.pipeline.schedule import motion
+from omg.pipeline.schedule import Schedule, motion
 from omg.pipeline.tracker import Tracker
 from omg.tracking.holomotion.runner import HoloMotionRolloutRunner
 from omg.tracking.holomotion.runtime import g1_state_from_qpos_history
@@ -23,8 +23,10 @@ def main():
     p.add_argument("--mode", choices=["sync", "async"], default="sync")
     p.add_argument("--frames", type=int, default=500)
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument("--switch-seconds", type=float, default=1.0)
     p.add_argument("--video", action="store_true")
     args = p.parse_args()
+    schedule = Schedule(args.switch_seconds)
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=False)
     torch.set_num_threads(1)
@@ -62,7 +64,7 @@ def main():
     runner.reset(initial, vel)
     try:
         timeline, plans = run(
-            planner, tracker, history, args.text, frames=args.frames, mode=args.mode
+            planner, tracker, history, args.text, frames=args.frames, mode=args.mode, schedule=schedule
         )
         for i, plan in enumerate(plans):
             np.savez_compressed(out / f"plan_{i:03d}.npz", **plan)
@@ -76,7 +78,7 @@ def main():
                 fps=50,
                 left_title="Raw reference",
                 right_title="Tracker execution",
-                overlay_lines=[args.text, "request25 / raw40-49 / switch50"],
+                overlay_lines=[args.text, f"request{schedule.request_phase} / raw{schedule.period - 10}-{schedule.period - 1} / switch{schedule.period}"],
             )
         (out / "report.json").write_text(
             json.dumps(
@@ -105,6 +107,7 @@ def main():
     finally:
         np.savez_compressed(
             out / "rollout.npz",
+            initial_history=history,
             executed=np.asarray(runner.executed_qpos_36),
             reference=np.asarray(runner.reference_qpos_36),
             fps=50,

@@ -1,5 +1,6 @@
 """One native 50Hz raw-plan timeline for simulation and deployment."""
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -7,9 +8,37 @@ import numpy as np
 FPS = 50
 HORIZON = 100
 HISTORY = 10
-PERIOD = 50
-REQUEST = 25
+LEAD = 25
 PREVIEW = 10
+
+
+@dataclass(frozen=True)
+class Schedule:
+    switch_seconds: float = 1.0
+
+    def __post_init__(self):
+        frames = self.switch_seconds * FPS
+        if (
+            not math.isfinite(frames)
+            or not LEAD <= frames <= HORIZON
+            or not math.isclose(frames, round(frames), abs_tol=1e-9, rel_tol=0)
+        ):
+            raise ValueError("switch_seconds must be 0.5..2.0 in 0.02s increments")
+
+    @property
+    def period(self):
+        return round(self.switch_seconds * FPS)
+
+    @property
+    def request_phase(self):
+        return self.period - LEAD
+
+    @property
+    def budget_ms(self):
+        return (LEAD - PREVIEW - 1) * 1000 // FPS
+
+    def requests_at(self, frame):
+        return frame % self.period == self.request_phase
 
 
 def motion(value, frames=None):
@@ -37,21 +66,26 @@ class Replan:
 
 
 class PlanTimeline:
-    def __init__(self, first):
+    def __init__(self, first, schedule=Schedule()):
+        self.schedule = schedule
         self.qpos = motion(first, HORIZON)
         self.raw = [self.qpos.copy()]
         self.pending = None
         self.events = []
 
     def request(self, frame):
-        if frame % PERIOD != REQUEST or self.pending is not None:
-            raise ValueError("Replan must start at phase 25 with no pending request")
-        plan_id = frame // PERIOD + 1
+        if not self.schedule.requests_at(frame) or self.pending is not None:
+            raise ValueError(
+                "Replan must start at the configured request phase with no pending request"
+            )
+        plan_id = frame // self.schedule.period + 1
         if plan_id != len(self.raw):
             raise ValueError("Nonsequential replan")
-        switch = plan_id * PERIOD
-        history = self.raw[-1][40:50].copy()
-        np.testing.assert_array_equal(history, self.qpos[switch - 10 : switch])
+        switch = plan_id * self.schedule.period
+        history = self.raw[-1][
+            self.schedule.period - HISTORY : self.schedule.period
+        ].copy()
+        np.testing.assert_array_equal(history, self.qpos[switch - HISTORY : switch])
         self.pending = Replan(plan_id, frame, switch, history)
         return self.pending
 

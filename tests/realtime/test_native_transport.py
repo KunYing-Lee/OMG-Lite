@@ -3,6 +3,7 @@ import threading
 import numpy as np
 import pytest
 
+from omg.pipeline.schedule import Schedule
 from omg.realtime.native import PlannerService, RemotePlanner
 from omg.realtime.reference_stream import ReferenceReceiver, encode_window
 from omg.realtime.transport import ZmqPlanServer
@@ -14,7 +15,8 @@ def qpos(n):
     return q
 
 
-def test_native_planner_roundtrip(tmp_path):
+@pytest.mark.parametrize("seconds", [0.5, 0.76, 1.0, 2.0])
+def test_native_planner_roundtrip(tmp_path, seconds):
     endpoint = "ipc://" + str(tmp_path / "planner")
     ready = threading.Event()
     errors = []
@@ -29,7 +31,7 @@ def test_native_planner_roundtrip(tmp_path):
         try:
             with ZmqPlanServer(endpoint) as server:
                 ready.set()
-                service = PlannerService(Planner())
+                service = PlannerService(Planner(), Schedule(seconds))
                 for _ in range(2):
                     server.send_plan(service.plan(server.recv_request()))
         except Exception as e:  # noqa: BLE001 - propagate failure to test thread
@@ -38,7 +40,7 @@ def test_native_planner_roundtrip(tmp_path):
     thread = threading.Thread(target=serve)
     thread.start()
     assert ready.wait(3), errors
-    client = RemotePlanner(endpoint)
+    client = RemotePlanner(endpoint, Schedule(seconds))
     for i in [0, 1]:
         np.testing.assert_array_equal(
             client.plan(qpos(10), "walk", i)["qpos"], qpos(100)
@@ -97,3 +99,18 @@ def test_connection_and_close_share_one_worker(monkeypatch):
     assert [x[0] for x in calls] == ["open", 30000, 280, "close"]
     assert len({x[1] for x in calls}) == 1
     assert calls[0][1] != threading.get_ident()
+
+
+def test_service_rejects_schedule_mismatch_before_inference():
+    from omg.realtime.protocol import RobotStateRequest
+
+    service = PlannerService(None)
+    request = RobotStateRequest(
+        qpos_36_history=qpos(10),
+        history_fps=50,
+        tracker_frame=0,
+        prompt="walk",
+        metadata={"plan_id": 0, "switch_frame": 0, "period_frames": 25},
+    )
+    with pytest.raises(ValueError, match="schedules must match"):
+        service.plan(request)

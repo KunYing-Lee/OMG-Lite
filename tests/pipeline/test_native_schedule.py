@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from omg.pipeline.schedule import PlanTimeline
+from omg.pipeline.schedule import PlanTimeline, Schedule
 from omg.realtime.reference_stream import ReferenceReceiver, encode_window
 from omg.tracking.holomotion.reference import precompute_reference_features
 
@@ -13,34 +13,34 @@ def qpos(n=100):
 
 
 def test_future_history_and_fixed_switch():
-    t = PlanTimeline(qpos())
-    r = t.request(25)
-    np.testing.assert_array_equal(r.history, qpos()[40:50])
-    assert r.deadline_frame == 39
+    t = PlanTimeline(qpos(), Schedule(0.5))
+    r = t.request(0)
+    np.testing.assert_array_equal(r.history, qpos()[15:25])
+    assert r.deadline_frame == 14
     new = qpos()
     new[:, 0] += 2
-    t.accept(r, new, current_frame=38)
-    np.testing.assert_array_equal(t.qpos[:50], qpos()[:50])
-    np.testing.assert_array_equal(t.qpos[50:], new)
-    np.testing.assert_array_equal(t.request(75).history, new[40:50])
+    t.accept(r, new, current_frame=13)
+    np.testing.assert_array_equal(t.qpos[:25], qpos()[:25])
+    np.testing.assert_array_equal(t.qpos[25:], new)
+    np.testing.assert_array_equal(t.request(25).history, new[15:25])
 
 
 def test_deadline_no_late_splice():
-    t = PlanTimeline(qpos())
-    r = t.request(25)
+    t = PlanTimeline(qpos(), Schedule(0.5))
+    r = t.request(0)
     with pytest.raises(TimeoutError):
-        t.check_frame(39)
+        t.check_frame(14)
     with pytest.raises(TimeoutError):
-        t.accept(r, qpos(), current_frame=40)
+        t.accept(r, qpos(), current_frame=15)
     assert len(t.raw) == 1
 
 
 def test_packet_features_equal_full_timeline_at_seam():
-    t = PlanTimeline(qpos())
-    r = t.request(25)
+    t = PlanTimeline(qpos(), Schedule(0.5))
+    r = t.request(0)
     new = qpos()
     new[:, 0] += 1
-    t.accept(r, new, current_frame=25)
+    t.accept(r, new, current_frame=0)
     order = list(range(29))
     full = precompute_reference_features(t.qpos, fps=50, onnx_to_g1=order)
     receiver = ReferenceReceiver(order)
@@ -63,13 +63,14 @@ def test_packet_features_equal_full_timeline_at_seam():
 def test_future_derivative_reaches_switch_one_frame_early():
     old = qpos()
     new = old.copy()
-    new[50, 0] += 1
+    new[25, 0] += 1
     a = precompute_reference_features(old, fps=50, onnx_to_g1=list(range(29)))
     b = precompute_reference_features(new, fps=50, onnx_to_g1=list(range(29)))
-    assert not np.array_equal(a["ref_base_linvel"][49], b["ref_base_linvel"][49])
+    assert not np.array_equal(a["ref_base_linvel"][24], b["ref_base_linvel"][24])
 
 
-def test_sync_and_deployment_have_identical_preview_for_30_50_70ms():
+@pytest.mark.parametrize("seconds", [0.5, 0.76, 1.0, 2.0])
+def test_sync_and_deployment_have_identical_preview_for_simulated_latencies(seconds):
     from concurrent.futures import Future
 
     from omg.pipeline.execution import run
@@ -93,11 +94,11 @@ def test_sync_and_deployment_have_identical_preview_for_30_50_70ms():
 
     p = Planner()
     t = Tracker()
-    run(p, t, qpos(10), "walk", frames=150)
+    run(p, t, qpos(10), "walk", frames=250, schedule=Schedule(seconds))
     # Compare effective observation features, not unused distant raw suffixes.
-    for latency in [0.03, 0.05, 0.07]:
+    for latency in [0.03, 0.05, 0.07, 0.21]:
         now = [0.0]
-        b = DeploymentBridge(p, "walk", clock=lambda now=now: now[0])
+        b = DeploymentBridge(p, "walk", clock=lambda now=now: now[0], schedule=Schedule(seconds))
         b.activate(qpos(10))
 
         class ControlledPool:
@@ -115,7 +116,7 @@ def test_sync_and_deployment_have_identical_preview_for_30_50_70ms():
 
         b.pool.shutdown()
         b.pool = ControlledPool(now, latency)
-        for frame in range(150):
+        for frame in range(250):
             now[0] = frame / 50
             if b.future is not None and not b.future.done() and now[0] >= b.pool.ready:
                 r = b.pool.request
@@ -135,3 +136,36 @@ def test_sync_and_deployment_have_identical_preview_for_30_50_70ms():
                     a[key][frame + 1 : frame + 11], z[key][1:11], atol=1e-6
                 )
         b.close()
+
+
+@pytest.mark.parametrize("seconds", [0.49, 2.02, 0.51, float('nan'), float('inf')])
+def test_invalid_schedule_rejected(seconds):
+    with pytest.raises(ValueError, match="switch_seconds"):
+        Schedule(seconds)
+
+
+@pytest.mark.parametrize("seconds,period,phase", [(0.5,25,0), (0.76,38,13), (1,50,25), (2,100,75)])
+def test_configured_schedule_history_and_deadline(seconds, period, phase):
+    schedule = Schedule(seconds)
+    assert schedule.period == period
+    assert schedule.request_phase == phase
+    assert schedule.budget_ms == 280
+    timeline = PlanTimeline(qpos(), schedule)
+    for i in range(3):
+        request_frame = i * period + phase
+        request = timeline.request(request_frame)
+        np.testing.assert_array_equal(request.history, timeline.raw[-1][period-10:period])
+        assert request.switch_frame == (i+1)*period
+        assert request.deadline_frame == request_frame + 14
+        prefix = timeline.qpos[:request.switch_frame].copy()
+        timeline.accept(request, qpos(), current_frame=request.deadline_frame)
+        np.testing.assert_array_equal(timeline.qpos[:request.switch_frame], prefix)
+        timeline.check_frame(request.deadline_frame)
+    assert Schedule().period == 50
+
+
+def test_remote_bridge_schedule_mismatch_rejected():
+    from omg.realtime.native import RemotePlanner
+    from omg.realtime.deployment import DeploymentBridge
+    with pytest.raises(ValueError, match="schedules must match"):
+        DeploymentBridge(RemotePlanner("unused", Schedule(0.5)), "walk")

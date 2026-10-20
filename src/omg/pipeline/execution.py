@@ -3,14 +3,16 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from omg.pipeline.schedule import FPS, PERIOD, REQUEST, PlanTimeline
+from omg.pipeline.schedule import FPS, Schedule, PlanTimeline
 
 
-def run(planner, tracker, history, text, *, frames=500, mode="sync"):
+def run(planner, tracker, history, text, *, frames=500, mode="sync", schedule=Schedule()):
     if mode not in ("sync", "async") or frames <= 0:
         raise ValueError("Expected sync/async and positive frames")
+    if hasattr(planner, "schedule") and planner.schedule != schedule:
+        raise ValueError("Planner and execution schedules must match")
     first = planner.plan(history, text, 0)
-    timeline = PlanTimeline(first["qpos"])
+    timeline = PlanTimeline(first["qpos"], schedule)
     tracker.activate(timeline.qpos)
     plans = [first]
     future = None
@@ -36,7 +38,7 @@ def run(planner, tracker, history, text, *, frames=500, mode="sync"):
                 tracker.activate(timeline.qpos)
                 future = None
             timeline.check_frame(frame)
-            if frame % PERIOD == REQUEST:
+            if schedule.requests_at(frame):
                 request = timeline.request(frame)
                 if mode == "sync":
                     result, _ = generate(request)
@@ -45,5 +47,5 @@ def run(planner, tracker, history, text, *, frames=500, mode="sync"):
                     tracker.activate(timeline.qpos)
                 else:
                     future = pool.submit(generate, request)
-            tracker.step(frame, frame // PERIOD)
+            tracker.step(frame, frame // schedule.period)
     return timeline, plans

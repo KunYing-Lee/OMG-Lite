@@ -58,7 +58,9 @@ PYTHONPATH=src:$PYTHONPATH python deployment/shadow_native50.py \
   --text 'raise hands' --frames 500 --output /path/to/new-shadow-report
 ```
 
-The planner retains 50 DDIM steps. Requests start at phase 25, use raw frames
+The planner retains 50 DDIM steps. These robot adapters use the shared default
+one-second switch period; the server must use the same period. Requests start
+at phase 25, use raw frames
 40–49, and switch at phase 50. Tracker preview/derivative support imposes a
 280 ms reply deadline. A missed control period or planner deadline is fatal;
 there is no interpolation, smoothing, fabricated history or hold-last recovery.
