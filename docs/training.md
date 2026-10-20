@@ -1,7 +1,7 @@
 # Training
 
 Training uses PyTorch Lightning with Hydra configs under `configs/generation`.
-Download OMG-Data first and place it at `data/OMG-Data`, or set
+Prepare native50Hz data first and place it at `data/OMG-Data-50Hz`, or set
 `OMG_DATA_ROOT` and `OMG_MATERIALIZED_ROOT`.
 
 Text-conditioned runs also need the Hugging Face `t5-base` text encoder. The
@@ -20,11 +20,11 @@ model.text_encoder.model_name=/path/to/t5-base
 ## Minimal Command
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
 PYTHONPATH=src python -m omg.cli.generation.train \
   exp=50m \
-  data=omg_data_materialized \
-  trainer=4gpu \
+  data=omg_data_50hz_cached \
+  trainer=8gpu \
   logger=wandb \
   exp_name=50m_release_train
 ```
@@ -65,8 +65,8 @@ Use `ckpt_path` for a full Lightning resume:
 ```bash
 PYTHONPATH=src python -m omg.cli.generation.train \
   exp=50m \
-  data=omg_data_materialized \
-  trainer=4gpu \
+  data=omg_data_50hz_cached \
+  trainer=8gpu \
   logger=wandb \
   ckpt_path=outputs/50m_release_train/checkpoints/last.ckpt
 ```
@@ -77,8 +77,8 @@ resuming optimizer, scheduler, dataloader, or global step state:
 ```bash
 PYTHONPATH=src python -m omg.cli.generation.train \
   exp=50m \
-  data=omg_data_materialized \
-  trainer=4gpu \
+  data=omg_data_50hz_cached \
+  trainer=8gpu \
   logger=wandb \
   init_weights_only_ckpt=outputs/source/checkpoints/last.ckpt
 ```

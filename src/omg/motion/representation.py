@@ -22,14 +22,14 @@ def _resolve_repo_path(path: str | Path) -> Path:
 class G1MotionRepresentation(nn.Module):
     def __init__(
         self,
-        stats_path: str | Path = "assets/stats/g1_125d_stats.json",
+        stats_path: str | Path = "assets/stats/g1_125d_50hz_hist10_stats.json",
         kinematics_path: str | Path = "assets/robots/g1/g1_kinematics.json",
-        num_prev_states: int = 2,
+        num_prev_states: int = 10,
         canonical_frame_idx: int | None = None,
-        feat_dim: int = 123,
-        sequence_length: int = 64,
+        feat_dim: int = 125,
+        sequence_length: int = 100,
         clip_std_min: float = 1e-6,
-        rotation_representation: str = "quat",
+        rotation_representation: str = "rot6d",
         rot6d_gradient_mode: str = "vanilla",
         include_body_positions: bool = True,
     ):

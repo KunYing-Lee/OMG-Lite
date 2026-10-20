@@ -33,18 +33,18 @@ def test_build_holomotion_deployment_clip_schema(frames: int):
     np.testing.assert_allclose(np.linalg.norm(clip["ref_global_rotation_quat"], axis=-1), 1.0, atol=1e-5)
 
 
-def test_export_holomotion_deployment_clip_resamples_and_writes(tmp_path: Path):
+def test_export_holomotion_deployment_clip_preserves_native_frames_and_writes(tmp_path: Path):
     reference = tmp_path / "reference.npz"
     output = tmp_path / "clip.npz"
-    np.savez(reference, qpos_36=_qpos(6), fps=np.asarray([30.0], dtype=np.float32))
+    np.savez(reference, qpos_36=_qpos(6), fps=np.asarray([50.0], dtype=np.float32))
 
     result = export_holomotion_deployment_clip(
         HoloMotionClipExportConfig(reference=reference, output=output, target_fps=50.0)
     )
 
     assert result.output_path == output.resolve()
-    assert result.frames == 9
+    assert result.frames == 6
     with np.load(output, allow_pickle=False) as data:
-        assert data["ref_dof_pos"].shape == (9, 29)
-        assert data["ref_global_translation"].shape == (9, 30, 3)
+        assert data["ref_dof_pos"].shape == (6, 29)
+        assert data["ref_global_translation"].shape == (6, 30, 3)
         assert str(data["metadata"][0])

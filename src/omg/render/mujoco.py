@@ -40,7 +40,7 @@ class UrdfJoint:
     axis_xyz: np.ndarray | None
 
 
-def save_video(frames_rgb: np.ndarray, output_path: str | Path, fps: int = 30) -> Path:
+def save_video(frames_rgb: np.ndarray, output_path: str | Path, fps: int = 50) -> Path:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     frames_rgb = np.asarray(frames_rgb, dtype=np.uint8)
@@ -942,7 +942,7 @@ def render_qpos_multi_frames(
 def render_qpos_video(
     qpos_36: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     elevation: float = -18.0,
@@ -1036,7 +1036,7 @@ def render_qpos_comparison_video(
     left_qpos_36: torch.Tensor | np.ndarray,
     right_qpos_36: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     elevation: float = -18.0,
@@ -1251,7 +1251,7 @@ def render_human_motion_frames(
 def render_human_motion_video(
     human_motion: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     title: str = "Human Reference",
@@ -1280,7 +1280,7 @@ def render_robot_human_comparison_video(
     qpos_36: torch.Tensor | np.ndarray,
     human_motion: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     camera_view: str = "iso",

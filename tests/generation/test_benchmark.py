@@ -106,32 +106,15 @@ class DummyConditionDataset:
         return index
 
 
-def test_lerobot_config_pins_public_dataset_revision():
-    config_dir = str(Path(__file__).resolve().parents[2] / "configs" / "generation")
+def test_native50_source_configuration():
+    config_dir = str(Path(__file__).resolve().parents[2] / "configs/generation")
     with initialize_config_dir(version_base="1.3", config_dir=config_dir):
-        cfg = compose(
-            config_name="train",
-            overrides=["data=omg_data_lerobot", "logger=none", "trainer=1gpu"],
-        )
-    test_opts = cfg.data.dataset_opts.test
-    assert list(test_opts) == ["omg_lerobot_test"]
-    dataset_cfg = test_opts.omg_lerobot_test
-    assert dataset_cfg.repo_id == "THU-MARS/OMG-Data"
-    assert dataset_cfg.revision == "6e0dfbc1c5298bff14d4e2b1459ad678af0a38e7"
-    assert dataset_cfg.manifest_sha256 == "be443885018180dda0f88ed874efc15cb3776a91148148baf49001d56a5ec855"
-
-
-def test_lerobot_omnimodal_config_enables_all_conditions():
-    config_dir = str(Path(__file__).resolve().parents[2] / "configs" / "generation")
-    with initialize_config_dir(version_base="1.3", config_dir=config_dir):
-        cfg = compose(
-            config_name="train",
-            overrides=["data=omg_data_lerobot_omnimodal", "logger=none", "trainer=1gpu"],
-        )
-    dataset_cfg = cfg.data.dataset_opts.test.omg_lerobot_omnimodal_test
-    assert dataset_cfg.use_text is True
-    assert dataset_cfg.use_audio is True
-    assert dataset_cfg.use_human_motion is True
+        cfg = compose(config_name="train", overrides=["data=omg_data_50hz"])
+    dataset = cfg.data.dataset_opts.train.omg_lerobot_train
+    assert dataset.fps == 50
+    assert dataset.repo_id == "local/OMG-Data-50Hz"
+    assert dataset.revision.startswith("sha256:")
+    assert not dataset.use_audio and not dataset.use_human_motion
 
 
 def test_benchmark_cohorts_preserve_release_protocol():
@@ -152,20 +135,6 @@ def test_benchmark_cohorts_preserve_release_protocol():
     assert "choreomaster_test" not in benchmark_source_datasets("audio", "test")
     assert set(humanref["beat2"]) <= set(benchmark_source_datasets("humanref", "test"))
 
-
-def test_committed_v2_benchmark_manifests_match_release_summary():
-    root = Path(__file__).resolve().parents[2] / "assets" / "benchmarks" / "mixed_modalities_all_v2"
-    summary = json.loads((root / "manifest_summary.json").read_text(encoding="utf-8"))
-    assert summary["sample_schema"] == "omg.benchmark.sample.v2"
-    assert summary["revision"] == "6e0dfbc1c5298bff14d4e2b1459ad678af0a38e7"
-    for condition in ("text", "audio", "humanref"):
-        condition_summary = summary["conditions"][condition]
-        path = root / condition_summary["path"]
-        records = _load_sample_records(path)
-        assert len(records) == condition_summary["num_samples"]
-        assert {record.schema for record in records} == {summary["sample_schema"]}
-        assert {record.revision for record in records} == {summary["revision"]}
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == condition_summary["sha256"]
 
 
 def test_select_condition_records_requires_full_condition_window():

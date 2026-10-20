@@ -37,8 +37,8 @@ def _coerce_fps(value: Any, source: Path) -> float:
     if arr.size != 1:
         raise ValueError(f"Expected scalar fps in {source}, got shape {arr.shape}")
     fps = float(arr.reshape(-1)[0])
-    if not np.isfinite(fps) or fps <= 0.0:
-        raise ValueError(f"Expected positive finite fps in {source}, got {fps}")
+    if fps != 50.:
+        raise ValueError(f"Expected native 50Hz fps in {source}, got {fps}")
     return fps
 
 

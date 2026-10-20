@@ -1,54 +1,15 @@
-# Data and Model Artifacts
+# Artifacts
 
-## Hugging Face Releases
+The supported public125D50Hz checkpoint is
+[step49431](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/updated/50Hz/sstep=049431.ckpt),
+SHA256 `b66c884c991e53129a8a9d03310a47194a77604372a3b9c62f6814ab63d9100e`.
+Use its resolved training configuration and native125D50Hz statistics.
+The default38D training architecture requires its own checkpoint.
 
-The public artifacts are released on Hugging Face:
+Download T5-base locally and set `OMG_MODELS_ROOT`. HoloMotion artifacts must
+be acquired separately from their official distribution; validation uses
+v1.4.1 `model_16200_dynamic_batch.onnx` with context1 and preview10.
 
-```text
-OMG-Data:        https://huggingface.co/datasets/THU-MARS/OMG-Data
-OMG checkpoints: https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints
-OMG evaluator:   https://huggingface.co/THU-MARS/OMG/blob/main/evaluator/step_004000.pt
-```
-
-## Default Local Layout
-
-The portable default layout is:
-
-```text
-OMG/
-  data/
-    OMG-Data/
-      data/
-      meta/
-      materialized/
-  models/
-    generation/
-    evaluator/
-    holomotion/
-```
-
-Hydra configs read these paths from `configs/generation/paths/default.yaml`.
-Override them with environment variables:
-
-```bash
-export OMG_DATA_ROOT=/path/to/OMG-Data
-export OMG_MATERIALIZED_ROOT=/path/to/OMG-Data/materialized
-export OMG_MODELS_ROOT=/path/to/OMG-models
-```
-
-## Required Runtime Artifacts
-
-For generation and tracking demos, prepare:
-
-- an exported OMG diffusion ONNX model and metadata sidecar;
-- a HoloMotion G1 tracker ONNX model;
-- a seed G1 motion file containing `qpos_36`;
-- `assets/stats/g1_125d_stats.json`, generated with
-  `omg.cli.generation.compute_stats`.
-
-For evaluator-based benchmark metrics, prepare:
-
-- `models/evaluator/pretrained.ckpt`, downloaded from the OMG evaluator release.
-
-For training, prepare either the official LeRobot v3 dataset under `OMG-Data/`
-or frame-level episode kinematics caches under `materialized/`.
+The original OMG release evaluator remains a separate benchmark artifact.
+Do not compare different sampling rates without an explicitly defined evaluator
+protocol; runtime frame-rate conversion is intentionally absent in Lite.

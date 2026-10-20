@@ -153,10 +153,10 @@ def compute_stats(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-config", type=Path, default=Path("configs/generation/data/omg_data_lerobot.yaml"))
+    parser.add_argument("--data-config", type=Path, default=Path("configs/generation/data/omg_data_50hz.yaml"))
     parser.add_argument("--representation-config", type=Path, default=Path("configs/generation/representation/38d.yaml"))
     parser.add_argument("--paths-config", type=Path, default=Path("configs/generation/paths/default.yaml"))
-    parser.add_argument("--output", type=Path, default=Path("assets/stats/g1_38d_stats.json"))
+    parser.add_argument("--output", type=Path, default=Path("assets/stats/g1_38d_50hz_hist10_stats.json"))
     parser.add_argument("--split", default="train")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=256)

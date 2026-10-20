@@ -1,152 +1,69 @@
-# Realtime G1 Deployment
+# Native 50Hz G1 deployment
 
-Realtime deployment uses three processes:
+This path uses the same `PlanTimeline` as simulation. Startup history contains
+10 measured 50Hz qpos36 samples. Each subsequent request uses raw plan 40–49,
+starts at phase25, and replaces the reference suffix at phase50. The reply
+must be available before phase39: ten preview frames plus one derivative sample.
+The complete transport/inference budget is 280ms, not 500ms.
 
-1. HoloMotion deployment on the G1 Orin.
-2. OMG realtime planner server on a GPU workstation.
-3. OMG real bridge on the G1 Orin.
-
-The planner server owns diffusion inference. The real bridge reads robot
-lowstate, builds history, sends condition-sequence requests, receives planned
-future motion, and publishes HoloMotion `obs65` reference packets.
-
-## Runtime Environment
-
-Realtime deployment uses two machines:
-
-- GPU workstation: runs `omg.cli.realtime.planner_server`.
-- G1 Orin: runs HoloMotion deployment and `omg.cli.realtime.holomotion_real_bridge`.
-
-The G1 Orin environment must provide Unitree ROS messages, including
-`unitree_hg.msg.LowState`. Run the real bridge inside the HoloMotion deployment
-environment or container where those ROS packages are sourced.
-
-## Network
-
-The G1 Orin must reach the workstation planner bind address. Use wired Ethernet
-when available. Wi-Fi can work, but planner latency and jitter should be checked
-before live tests.
-
-Example workstation planner address:
-
-```text
-tcp://10.0.20.14:5571
-```
-
-## Terminal 1: HoloMotion on G1
-
-Run inside the G1 HoloMotion deployment directory:
+## GPU planner
 
 ```bash
-cd /home/unitree/holomotion/deployment/unitree_g1_ros2_29dof
-./launch_holomotion_29dof_docker.sh
+PYTHONPATH=src python -m omg.cli.realtime.planner_server \
+  --config /path/to/resolved_training_config.yaml \
+  --checkpoint /path/to/native50.ckpt --bind tcp://0.0.0.0:5571
 ```
 
-The active launch profile must configure HoloMotion to subscribe to OMG
-latest-obs ZMQ:
+Strict checkpoint loading, architecture contract validation, history10,
+horizon100, 50 DDIM steps, CFG2.5. Native checkpoints carry their representation;
+38D and 125D are not interchangeable. No DiT skip/cache approximation is enabled.
 
-```yaml
-latest_obs_zmq_uri: tcp://127.0.0.1:6001
-latest_obs_zmq_topic: obs65
-latest_obs_zmq_mode: connect
-enable_teleop_reference: true
-```
-
-Keep runtime and deployment fields in the launch profile, not in the robot
-config YAML.
-
-## Terminal 2: Planner Server on Workstation
+## Orin bridge
 
 ```bash
-cd /path/to/OMG
-source .venv/bin/activate
-
-PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 python -m omg.cli.realtime.planner_server \
-  --bind tcp://0.0.0.0:5571 \
-  --diffusion-onnx models/generation/onnx/50m/last_denoiser_step.onnx \
-  --providers TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider \
-  --tensorrt-engine-cache-path tensorrt_engine_cache/realtime_planner \
-  --dit-cache \
-  --log-jsonl outputs_realtime/planner.jsonl
+PYTHONPATH=src python -m omg.cli.realtime.holomotion_real_bridge \
+  --connect tcp://GPU_HOST:5571 --text 'walk forward' \
+  --publish-bind ipc:///tmp/omg-preview-v2
 ```
 
-The planner server does not own the prompt. Conditions come from bridge request
-metadata. This keeps runtime condition changes on the robot-side bridge command.
+The bridge waits for measured history from an **already armed** HoloMotion
+consumer. Initial inference happens outside the active tracking clock. During
+tracking, generation runs in a worker and the 50Hz clock never waits for it.
+A late plan or missed control tick terminates the stream; the consumer must
+revoke tracking on timeout. No hold-last-reference recovery is implemented.
 
-## Terminal 3: Real Bridge on G1
+## HoloMotion consumer integration
 
-Run inside the HoloMotion deployment environment or container where Unitree ROS
-messages are available:
+Import `deployment/holomotion_hook.py` into the existing Orin controller and call
+`run_armed_tracker` after its existing remote-B gate. Supply the initialized
+HoloMotion session/metadata/handles and these concrete controller callbacks:
 
-```bash
-cd /home/unitree/OMG
+- `read_state()`: fresh `joint_pos[29]`, `joint_vel[29]` in G1 order,
+  pelvis `root_quat_wxyz[4]`, body `gyro[3]`; reject stale feedback.
+- `apply_action(action)`: existing ONNX-order action-to-PD/motor path.
+- `stop_tracking()`: existing disarm/stop path, always called on exit.
+- `measured_history[10,36]`: native50 startup history from the state estimator.
+  Unitree LowState alone has no root translation. Do not substitute nominal
+  height or planned root position and label it measured history.
 
-PYTHONPATH=src:$PYTHONPATH /root/miniconda3/envs/holomotion_deploy/bin/python \
-  -m omg.cli.realtime.holomotion_real_bridge \
-  --connect tcp://10.0.20.14:5571 \
-  --history-frames 10 \
-  --history-fps 30 \
-  --tracker-fps 50 \
-  --continuous \
-  --replan-remaining-frames 40 \
-  --condition-sequence "text: walk forward" \
-  --holomotion-config /home/unitree/holomotion/deployment/unitree_g1_ros2_29dof/src/config/g1_29dof_holomotion.yaml \
-  --publish-bind tcp://*:6001 \
-  --activation-mode remote-b \
-  --sleep \
-  --status-jsonl /home/unitree/OMG/outputs_realtime/real_demo/status.jsonl \
-  --output /home/unitree/OMG/outputs_realtime/real_demo/bridge.npz
-```
+The adapter emits the same clipped policy action as the simulator (clip10,
+matching HoloMotion's configured action limit). It does not publish LowCmd or
+replace the robot controller's gains, joint mapping, arming or emergency stop.
+This hook must be integrated in that external controller; stock HoloMotion's
+legacy `obs65` subscriber is **not** compatible.
 
-With `--activation-mode remote-b`, the bridge waits for the Unitree remote B
-button before it starts sending active replans. The first active replan uses
-live lowstate history.
+Each Orin-local v2 packet contains the preceding sample, current sample, ten
+future samples and one derivative sample. The consumer computes the exact
+reference features used in simulation and builds observations from live state.
+Packets are ordered and age-checked against the same-host monotonic clock.
+No future frames are synthesized by repeating the current reference.
 
-## Dry Run
+## Verification boundary
 
-Before live tests, run a dry bridge against the planner:
-
-```bash
-PYTHONPATH=src python -m omg.cli.realtime.holomotion_dry_run \
-  --connect tcp://10.0.20.14:5571 \
-  --seed-motion /path/to/seed_motion.npz \
-  --history-frames 10 \
-  --history-fps 30 \
-  --tracker-fps 50 \
-  --continuous \
-  --replan-remaining-frames 40 \
-  --condition-sequence "text: walk forward" \
-  --publish-bind tcp://*:6001 \
-  --sleep \
-  --output outputs_realtime/dry_run/bridge.npz
-```
-
-Add `--sim-stream-bind 127.0.0.1:7870` to view a local MuJoCo stream at
-`http://127.0.0.1:7870/video.mjpg`.
-
-## Logs
-
-Planner log lines include:
-
-```text
-[replan 0001] request=... frame=... buffer=... prompt='walk forward' latency=...
-```
-
-Bridge log lines include:
-
-```text
-[real-bridge replan 0001] request=... append=... history=lowstate ...
-```
-
-Check:
-
-- `history=lowstate` after activation.
-- lowstate age stays small.
-- bridge latency is close to server latency plus network/request overhead.
-- reference buffer does not drain to zero.
-
-## Safety
-
-Test HoloMotion standalone before realtime diffusion. Keep the Unitree remote
-available and verify emergency stop behavior before pressing B for active
-realtime rollout.
+`tests/pipeline/test_native_schedule.py` checks scheduling, missed deadlines,
+preview derivative support and simulated30/50/70ms latency equivalence.
+`scripts/validation/native50_sim.py` exercises the deployed observation/action
+adapter with the same MuJoCo dynamics as the normal tracker. Actual network
+latency, Orin throughput, controller integration and physical acceptance still
+require deployment-side verification. Do not interpret simulated latency as
+measured inference speed.

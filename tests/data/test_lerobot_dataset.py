@@ -71,7 +71,7 @@ def _write_lerobot_fixture(root: Path, *, split: str = "train") -> str:
     (root / "meta" / "info.json").write_text(
         json.dumps(
             {
-                "fps": 30,
+                "fps": 50,
                 "splits": {split: "0:1"},
                 "features": {
                     "observation.state": {"dtype": "float32", "shape": [36]},
@@ -141,7 +141,7 @@ def _write_nonzero_offset_fixture(root: Path, *, split: str) -> str:
     (root / "meta" / "info.json").write_text(
         json.dumps(
             {
-                "fps": 30,
+                "fps": 50,
                 "splits": {split: "1:2"},
                 "features": {
                     "observation.state": {"dtype": "float32", "shape": [36]},
@@ -170,7 +170,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
         manifest_sha256=manifest_sha256,
         split="train",
         sequence_duration=2.0,
-        fps=30.0,
+        fps=50.0,
         num_prev_states=2,
         train_window_policy="exhaustive",
         rotation_representation="rot6d",
@@ -197,7 +197,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
     torch.testing.assert_close(stats_batch["qpos_36"][0, valid], sample["qpos_36"][sample["mask"]["valid"]])
     assert fk_calls == sample_fk_calls + 1
     assert sample["caption"] == "walk forward; style: steady"
-    assert sample["qpos_36"].shape == (60, 36)
+    assert sample["qpos_36"].shape == (100, 36)
     assert sample["motion_features"].shape[-1] == (125 if include_body_positions else 38)
     assert sample["mask"]["valid"].sum().item() == 5
     assert sample["qpos_36"][0, 0].item() == 2.0
@@ -246,8 +246,8 @@ def test_lerobot_materialization_translates_nonzero_split_frame_offsets(tmp_path
         revision=TEST_REVISION,
         manifest_sha256=manifest_sha256,
         split="val",
-        sequence_duration=0.1,
-        fps=30.0,
+        sequence_duration=0.06,
+        fps=50.0,
         num_prev_states=2,
         rotation_representation="rot6d",
         eval_num_windows=1,
@@ -279,8 +279,8 @@ def test_lerobot_stats_translate_nonzero_split_frame_offsets(tmp_path: Path) -> 
         revision=TEST_REVISION,
         manifest_sha256=manifest_sha256,
         split="train",
-        sequence_duration=0.1,
-        fps=30.0,
+        sequence_duration=0.06,
+        fps=50.0,
         num_prev_states=2,
         rotation_representation="rot6d",
         train_window_policy="exhaustive",
@@ -300,8 +300,8 @@ def test_lerobot_benchmark_view_resolves_complete_identity(tmp_path: Path) -> No
         revision=TEST_REVISION,
         manifest_sha256=manifest_sha256,
         split="test",
-        sequence_duration=0.1,
-        fps=30.0,
+        sequence_duration=0.06,
+        fps=50.0,
         num_prev_states=2,
         rotation_representation="rot6d",
         use_audio=True,
@@ -353,10 +353,10 @@ def test_lerobot_reader_rejects_wrong_release_manifest(tmp_path: Path) -> None:
 def test_lerobot_reader_rejects_unregistered_official_revision(tmp_path: Path) -> None:
     dataset_root = tmp_path / "lerobot"
     manifest_sha256 = _write_lerobot_fixture(dataset_root)
-    with pytest.raises(ValueError, match="Unsupported official OMG-Data release identity"):
+    with pytest.raises(ValueError, match="Unsupported native50 dataset identity"):
         LeRobotG1MotionDataset(
             dataset_root=dataset_root,
-            repo_id="THU-MARS/OMG-Data",
+            repo_id="local/OMG-Data-50Hz",
             revision="2" * 40,
             manifest_sha256=manifest_sha256,
             split="train",

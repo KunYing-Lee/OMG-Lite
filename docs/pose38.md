@@ -47,7 +47,7 @@ pose, records source SHA-256, and refuses to overwrite output files. Training ne
 silently truncates a mismatched statistics file. Existing `compute_stats` also
 supports the compact representation, with `38d.yaml` as its default.
 
-The committed `g1_38d_stats.json` is projected from the committed 60-frame 125D
+The committed `g1_38d_50hz_hist10_stats.json` is projected from the committed native50Hz 100-frame 125D
 statistics. It is **not** the 100-frame/50Hz statistics required by the default
 experiment. That experiment expects `g1_38d_50hz_hist10_stats.json`, or the path
 supplied through `OMG50_STATS_PATH`; convert the matching 50Hz source on the
@@ -55,7 +55,7 @@ training host before launching.
 
 ## Compatibility
 
-Use `representation=125d` for the legacy feature layout. Existing 125D generation
+Use `representation=125d` for the 125D feature layout. Existing 125D generation
 checkpoints are not 38D checkpoints: input/output and history projections change
 shape. Train a new 38D model; do not resume a 125D optimizer/checkpoint as 38D.
 The decoded world-space controller interface remains `qpos_36`.
