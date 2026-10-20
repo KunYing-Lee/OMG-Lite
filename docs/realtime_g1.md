@@ -83,8 +83,14 @@ latency, Orin throughput, controller integration and physical acceptance still
 require deployment-side verification. Do not interpret simulated latency as
 measured inference speed.
 
+The concrete ROS/Orin adapters and pinned external-controller stop patch are
+in [`deployment/README.md`](../deployment/README.md). That document separates
+completed network/isolated checks from the still-pending shadow and physical
+acceptance gates. The native policy adapter is not yet hardware-qualified.
+
 Configurable-period validation (2026-10-21): 219 tests passed (one existing
 PyTorch scheduler deprecation warning). Schedule and ZMQ transport tests cover
 0.5, 0.76, 1.0 and 2.0 seconds; deployment preview parity covers simulated
 30/50/70/210ms inference delays. This validates scheduling and protocol behavior,
 not new motion-quality benchmarks or physical deployment acceptance.
+

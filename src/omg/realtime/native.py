@@ -1,11 +1,14 @@
 """Request/response adapter for the same native timeline used by simulation."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 from omg.pipeline.schedule import Schedule, motion
 from omg.realtime.protocol import MotionPlanChunk, RobotStateRequest
 
 
 class PlannerService:
-    def __init__(self, planner, schedule=Schedule()):
+    def __init__(self, planner, schedule=None):
+        schedule = Schedule() if schedule is None else schedule
         self.schedule = schedule
         self.planner = planner
 
@@ -40,16 +43,19 @@ class PlannerService:
 
 
 class RemotePlanner:
-    """Synchronous callable; the async executor calls this on its worker thread.
+    """Persistent connection owned exclusively by a dedicated I/O thread."""
 
-    ZMQ sockets are created in the calling thread, never shared across threads.
-    """
-
-    def __init__(self, connect, schedule=Schedule()):
+    def __init__(self, connect, schedule=None):
+        schedule = Schedule() if schedule is None else schedule
         self.schedule = schedule
         self.connect = connect
+        self.pool = ThreadPoolExecutor(max_workers=1)
+        self.client = None
 
     def plan(self, history, text, plan_id):
+        return self.pool.submit(self._plan, history, text, plan_id).result()
+
+    def _plan(self, history, text, plan_id):
         from omg.realtime.transport import ZmqPlanClient
 
         switch = plan_id * self.schedule.period
@@ -57,7 +63,8 @@ class RemotePlanner:
             qpos_36_history=motion(history, 10),
             history_fps=50,
             tracker_frame=(
-                0 if plan_id == 0
+                0
+                if plan_id == 0
                 else switch - self.schedule.period + self.schedule.request_phase
             ),
             prompt=text,
@@ -67,10 +74,11 @@ class RemotePlanner:
                 "period_frames": self.schedule.period,
             },
         )
-        with ZmqPlanClient(self.connect) as client:
-            response = client.request_plan(
-                request, timeout_ms=30000 if plan_id == 0 else self.schedule.budget_ms
-            )
+        if self.client is None:
+            self.client = ZmqPlanClient(self.connect)
+        response = self.client.request_plan(
+            request, timeout_ms=30000 if plan_id == 0 else self.schedule.budget_ms
+        )
         if (
             response.fps,
             response.plan_id,
@@ -83,3 +91,12 @@ class RemotePlanner:
             "qpos": motion(response.qpos_36, 100),
             "latency_s": response.planning_latency_seconds,
         }
+
+    def _close(self):
+        if self.client is not None:
+            self.client.close()
+            self.client = None
+
+    def close(self):
+        self.pool.submit(self._close).result()
+        self.pool.shutdown(wait=True, cancel_futures=True)

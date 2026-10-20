@@ -1,0 +1,76 @@
+--- a/src/src/main_node.cpp
++++ b/src/src/main_node.cpp
+@@ -18,6 +18,8 @@
+  #include <vector>
+  #include <yaml-cpp/yaml.h>
+  #include <thread>
++ #include <chrono>
++ #include <cmath>
+  
+  #define INFO_IMU 0   // Set 1 to info IMU states
+  #define INFO_MOTOR 0 // Set 1 to info motor states
+@@ -71,6 +73,15 @@
+              "/humanoid/kds", 10,
+              std::bind(&humanoid_controller::KdsHandler, this, _1));
+  
++     tracking_stop_subscriber_ = this->create_subscription<std_msgs::msg::String>(
++         "/humanoid/tracking_stop", 10,
++         [this](const std_msgs::msg::String::SharedPtr message) {
++           RCLCPP_ERROR(this->get_logger(), "Tracking stopped: %s", message->data.c_str());
++           current_state_ = RobotState::EMERGENCY_STOP;
++           should_shutdown_ = true;
++           publishRobotState();
++         });
++
+      lowcmd_publisher_ =
+          this->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 10);
+  
+@@ -112,6 +123,8 @@
+    std::map<std::string, double> move_to_default_kps;
+    std::map<std::string, double> move_to_default_kds;
+  
++   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr tracking_stop_subscriber_;
++   std::chrono::steady_clock::time_point last_action_time_;
+    RobotState current_state_ = RobotState::ZERO_TORQUE;
+  
+    bool should_shutdown_ = false;
+@@ -325,6 +338,15 @@
+    }
+  
+    void Control() {
++     // A stopped policy must not leave the previous target active indefinitely.
++     if (current_state_ == RobotState::POLICY &&
++         (std::chrono::duration<double>(
++           std::chrono::steady_clock::now() - last_action_time_).count() > 0.040)) {
++       RCLCPP_ERROR(this->get_logger(), "Policy action watchdog expired (40ms)");
++       current_state_ = RobotState::EMERGENCY_STOP;
++       should_shutdown_ = true;
++       publishRobotState();
++     }
+      // First check if we're already in emergency stop
+      if (current_state_ == RobotState::EMERGENCY_STOP) {
+          emergency_stop_time_ += control_dt_;
+@@ -422,6 +444,7 @@
+  
+              if (positions_ok) {
+                  RCLCPP_INFO(this->get_logger(), "Switching to POLICY state");
++                 last_action_time_ = std::chrono::steady_clock::now();
+                  current_state_ = RobotState::POLICY;
+                  time_ = 0.0;
+                  publishRobotState();
+@@ -690,6 +713,15 @@
+        return;
+      }
+  
++     for (float value : policy_action_data) {
++       if (!std::isfinite(value)) {
++         current_state_ = RobotState::EMERGENCY_STOP;
++         should_shutdown_ = true;
++         publishRobotState();
++         return;
++       }
++     }
++     last_action_time_ = std::chrono::steady_clock::now();
+      // set target dof pos
+      for (size_t i = 0; i < policy_dof_order.size(); i++) {
+        const auto &dof_name = policy_dof_order[i];

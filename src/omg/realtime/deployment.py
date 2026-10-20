@@ -8,11 +8,12 @@ this adapter never holds, extrapolates, skips, or silently changes the schedule.
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from omg.pipeline.schedule import Schedule, PlanTimeline, motion
+from omg.pipeline.schedule import PlanTimeline, Schedule, motion
 
 
 class DeploymentBridge:
-    def __init__(self, planner, text, *, clock=time.monotonic, schedule=Schedule()):
+    def __init__(self, planner, text, *, clock=time.monotonic, schedule=None):
+        schedule = Schedule() if schedule is None else schedule
         self.schedule = schedule
         if hasattr(planner, "schedule") and planner.schedule != schedule:
             raise ValueError("Planner and bridge schedules must match")
@@ -59,3 +60,5 @@ class DeploymentBridge:
 
     def close(self):
         self.pool.shutdown(wait=True, cancel_futures=True)
+        if hasattr(self.planner, "close"):
+            self.planner.close()
