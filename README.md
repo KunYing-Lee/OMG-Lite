@@ -200,7 +200,13 @@ length, or preprocessing changes.
 
 ## 5. Train
 
-Example 50M training run:
+The default `exp=base` is now the 50Hz text-only 50M, three-epoch protocol
+(global batch 6144 on eight GPUs). It requires an externally prepared 50Hz cache
+and matching 125D statistics; the 30Hz preparation commands above do not produce
+those inputs. See [50Hz pretraining](docs/training_50hz.md) for the exact launch,
+artifact requirements, fixed evaluation and runtime optimizations.
+
+The explicit `exp=50m` preset below retains the previous 30Hz protocol:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 \

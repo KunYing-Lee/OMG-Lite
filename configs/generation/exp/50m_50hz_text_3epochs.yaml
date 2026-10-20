@@ -1,0 +1,5 @@
+# @package _global_
+# Explicit alias for the default 50Hz pretraining protocol.
+defaults:
+  - base
+  - _self_

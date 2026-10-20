@@ -11,7 +11,7 @@ def test_compose_transformer():
     assert cfg.denoiser._target_.endswith("MotionTransformerDenoiser")
     assert cfg.model.text_encoder.model_name == f"{cfg.paths.repo_root}/models/t5-base-local"
     assert cfg.model.scheduler.type == "linear_warmup_cosine"
-    assert cfg.model.scheduler.warmup_steps == 2000
+    assert cfg.model.scheduler.warmup_steps == 250
 
 
 def test_compose_300m_diffusion_only():

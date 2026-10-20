@@ -221,22 +221,25 @@ class DistributedMaterializedShardSampler(Sampler[int]):
         order = torch.randperm(len(self.spans), generator=generator).tolist()
         return [span_index for block_position, span_index in enumerate(order) if block_position % world_size == rank]
 
-    def _activate_span(self, span_index: int, generator: torch.Generator) -> list[Any]:
-        start, count = self.spans[span_index]
+    def _rank_spans(self) -> list[tuple[int, int]]:
+        return [self.spans[i] for i in self._rank_span_indices()]
+
+    def _activate_span(self, span: tuple[int, int], generator: torch.Generator) -> list[Any]:
+        start, count = span
         offsets = torch.randperm(count, generator=generator).tolist()
         return [int(start), offsets, 0]
 
     def __iter__(self):
         generator = torch.Generator()
         generator.manual_seed(self.seed + self.epoch * 0x9E3779B1 + 0xD1B54A32)
-        span_indices = self._rank_span_indices()
+        rank_spans = self._rank_spans()
         active: list[list[Any]] = []
         next_span = 0
 
         def fill_active() -> None:
             nonlocal next_span
-            while next_span < len(span_indices) and len(active) < self.interleave_window:
-                active.append(self._activate_span(span_indices[next_span], generator))
+            while next_span < len(rank_spans) and len(active) < self.interleave_window:
+                active.append(self._activate_span(rank_spans[next_span], generator))
                 next_span += 1
 
         fill_active()
@@ -250,10 +253,44 @@ class DistributedMaterializedShardSampler(Sampler[int]):
             fill_active()
 
     def __len__(self) -> int:
-        return int(sum(self.spans[span_index][1] for span_index in self._rank_span_indices()))
+        return int(sum(count for _, count in self._rank_spans()))
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = int(epoch)
+
+
+class DistributedBalancedShardSampler(DistributedMaterializedShardSampler):
+    """Partition a shuffled shard stream by exact sample counts across ranks.
+
+    Only shards crossing rank boundaries are split. Each rank receives floor(N/W)
+    distinct windows; the final N % W windows are dropped, as in a distributed
+    sampler with drop_last=True. Shard order changes each epoch, so the dropped
+    tail is not fixed. Local interleaving and within-span shuffle are unchanged.
+    """
+
+    def _rank_spans(self) -> list[tuple[int, int]]:
+        rank, world = _rank_world_size()
+        if world <= 0 or not 0 <= rank < world:
+            raise ValueError(f"Invalid rank/world size: {rank}/{world}")
+        quota = self.num_samples // world
+        lower, upper = rank * quota, (rank + 1) * quota
+        generator = torch.Generator().manual_seed(self.seed + self.epoch * 0x9E3779B1)
+        order = torch.randperm(len(self.spans), generator=generator).tolist()
+        result = []
+        cursor = 0
+        for index in order:
+            start, count = self.spans[index]
+            left, right = max(lower, cursor), min(upper, cursor + count)
+            if left < right:
+                result.append((start + left - cursor, right - left))
+            cursor += count
+            if cursor >= upper:
+                break
+        return result
+
+    def __len__(self) -> int:
+        _, world = _rank_world_size()
+        return self.num_samples // world
 
 
 class DistributedWeightedSampler(Sampler[int]):
@@ -340,8 +377,12 @@ class GenerationDataModule(pl.LightningDataModule):
         rotation_representation: str = "quat",
         train_window_policy: str | None = None,
         train_window_stride: int | None = None,
+        train_sampler_policy: str = "auto",
     ) -> None:
         super().__init__()
+        if train_sampler_policy not in {"auto", "balanced_shards"}:
+            raise ValueError(f"Unknown train sampler policy: {train_sampler_policy}")
+        self.train_sampler_policy = train_sampler_policy
         self.dataset_opts = dataset_opts
         self.loader_opts = loader_opts
         self.limit_each_trainset = limit_each_trainset
@@ -492,12 +533,17 @@ class GenerationDataModule(pl.LightningDataModule):
             "persistent_workers": int(opts.num_workers) > 0 and split == "train",
             "drop_last": drop_last,
             "collate_fn": motion_collate_fn,
+            "pin_memory": bool(opts.get("pin_memory", False)),
         }
         if split == "train" and shuffle:
             materialized_spans = _materialized_shard_spans(dataset)
+            if self.train_sampler_policy == "balanced_shards" and materialized_spans is None:
+                raise ValueError("balanced_shards requires materialized shard spans")
             if materialized_spans is not None:
                 loader_kwargs["shuffle"] = False
-                loader_kwargs["sampler"] = DistributedMaterializedShardSampler(
+                sampler_class = (DistributedBalancedShardSampler if self.train_sampler_policy == "balanced_shards"
+                                 else DistributedMaterializedShardSampler)
+                loader_kwargs["sampler"] = sampler_class(
                     dataset,
                     seed=self.train_subset_seed,
                 )
