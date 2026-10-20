@@ -19,9 +19,9 @@ from omg.robots.g1.kinematics import G1Kinematics
 from omg.utils.rotation_conversions import standardize_quaternion
 
 
-LEROBOT_REPO_ID = "THU-MARS/OMG-Data"
-LEROBOT_REVISION = "6e0dfbc1c5298bff14d4e2b1459ad678af0a38e7"
-LEROBOT_MANIFEST_SHA256 = "be443885018180dda0f88ed874efc15cb3776a91148148baf49001d56a5ec855"
+LEROBOT_REPO_ID = "local/OMG-Data-50Hz"
+LEROBOT_REVISION = "sha256:ff4243bdc4dd1fb242ca9419cd99080329300de55bb7b70a417ca5055e8a843e"
+LEROBOT_MANIFEST_SHA256 = "348d470d302a7c69ecec396bb63fd98b3b882a204fac22cbdfdf3a2abefba8ee"
 
 
 def _load_dataset_runtime():
@@ -125,7 +125,7 @@ class LeRobotG1MotionDataset(Dataset):
         revision: str = LEROBOT_REVISION,
         manifest_sha256: str = LEROBOT_MANIFEST_SHA256,
         sequence_duration: float = 2.0,
-        fps: float = 30.0,
+        fps: float = 50.0,
         canonical_frame_idx: int | None = None,
         num_prev_states: int = 10,
         limit_size: int | None = None,
@@ -146,7 +146,14 @@ class LeRobotG1MotionDataset(Dataset):
         self.repo_id = str(repo_id)
         self.revision = str(revision)
         self.manifest_sha256 = str(manifest_sha256).lower()
-        if len(self.revision) != 40 or any(character not in "0123456789abcdef" for character in self.revision.lower()):
+        local_snapshot = self.revision.startswith("sha256:")
+        if local_snapshot:
+            snapshot_digest = self.revision.removeprefix("sha256:")
+            if len(snapshot_digest) != 64 or any(c not in "0123456789abcdef" for c in snapshot_digest):
+                raise ValueError("Local revision must be sha256:<64 lowercase hex characters>")
+            if dataset_root is None:
+                raise ValueError("Local snapshots require an explicit dataset_root")
+        elif len(self.revision) != 40 or any(character not in "0123456789abcdef" for character in self.revision.lower()):
             raise ValueError(f"LeRobot revision must be a full 40-character commit SHA, got {self.revision!r}")
         if len(self.manifest_sha256) != 64 or any(
             character not in "0123456789abcdef" for character in self.manifest_sha256
@@ -159,14 +166,20 @@ class LeRobotG1MotionDataset(Dataset):
             self.revision != LEROBOT_REVISION or self.manifest_sha256 != LEROBOT_MANIFEST_SHA256
         ):
             raise ValueError(
-                "Unsupported official OMG-Data release identity: "
+                "Unsupported native50 dataset identity: "
                 f"revision={self.revision} manifest_sha256={self.manifest_sha256}. "
                 "Update the pinned release constants and configs together."
             )
         self.dataset_root = _resolve_root(dataset_root, repo_id=self.repo_id, revision=revision)
+        if local_snapshot:
+            checksum_index = self.dataset_root / "SHA256SUMS"
+            if hashlib.sha256(checksum_index.read_bytes()).hexdigest() != snapshot_digest:
+                raise ValueError("Local snapshot checksum-index identity mismatch")
         self.split = str(split)
         self.sequence_duration = float(sequence_duration)
         self.default_fps = float(fps)
+        if self.default_fps != 50.:
+            raise ValueError("OMG-Lite datasets must be native 50Hz")
         self.num_prev_states = int(num_prev_states)
         self.limit_size = None if limit_size is None else int(limit_size)
         self.use_text = bool(use_text)

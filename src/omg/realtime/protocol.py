@@ -4,12 +4,13 @@ import io
 import json
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
-MESSAGE_VERSION = 1
+MESSAGE_VERSION = 2
 KIND_ROBOT_STATE_REQUEST = "robot_state_request"
 KIND_MOTION_PLAN_CHUNK = "motion_plan_chunk"
 QPOS_DIM = 36
@@ -40,8 +41,8 @@ def _coerce_qpos_36(value: Any, *, name: str) -> np.ndarray:
 
 def _coerce_fps(value: float, *, name: str) -> float:
     fps = float(value)
-    if not np.isfinite(fps) or fps <= 0.0:
-        raise ValueError(f"{name} must be positive and finite, got {value}")
+    if fps != 50.0:
+        raise ValueError(f"{name} must be native 50Hz, got {value}")
     return fps
 
 
@@ -58,18 +59,29 @@ def _request_id(value: str | None) -> str:
     return str(value)
 
 
-def encode_message(header: Mapping[str, Any], arrays: Mapping[str, np.ndarray] | None = None) -> tuple[bytes, bytes]:
+def encode_message(
+    header: Mapping[str, Any], arrays: Mapping[str, np.ndarray] | None = None
+) -> tuple[bytes, bytes]:
     payload = io.BytesIO()
-    np.savez_compressed(payload, **{str(key): np.asarray(value) for key, value in (arrays or {}).items()})
-    header_bytes = json.dumps(_jsonable(dict(header)), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    np.savez_compressed(
+        payload,
+        **{str(key): np.asarray(value) for key, value in (arrays or {}).items()},
+    )
+    header_bytes = json.dumps(
+        _jsonable(dict(header)), sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     return header_bytes, payload.getvalue()
 
 
-def decode_message(header_bytes: bytes, payload_bytes: bytes) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+def decode_message(
+    header_bytes: bytes, payload_bytes: bytes
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     header = json.loads(header_bytes.decode("utf-8"))
     version = int(header.get("version", -1))
     if version != MESSAGE_VERSION:
-        raise ValueError(f"Unsupported realtime protocol version {version}; expected {MESSAGE_VERSION}")
+        raise ValueError(
+            f"Unsupported realtime protocol version {version}; expected {MESSAGE_VERSION}"
+        )
     with np.load(io.BytesIO(payload_bytes), allow_pickle=False) as data:
         arrays = {key: np.asarray(data[key]) for key in data.files}
     return header, arrays
@@ -87,13 +99,25 @@ class RobotStateRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "qpos_36_history", _coerce_qpos_36(self.qpos_36_history, name="qpos_36_history"))
-        object.__setattr__(self, "history_fps", _coerce_fps(self.history_fps, name="history_fps"))
-        object.__setattr__(self, "tracker_frame", _coerce_non_negative_int(self.tracker_frame, name="tracker_frame"))
+        object.__setattr__(
+            self,
+            "qpos_36_history",
+            _coerce_qpos_36(self.qpos_36_history, name="qpos_36_history"),
+        )
+        object.__setattr__(
+            self, "history_fps", _coerce_fps(self.history_fps, name="history_fps")
+        )
+        object.__setattr__(
+            self,
+            "tracker_frame",
+            _coerce_non_negative_int(self.tracker_frame, name="tracker_frame"),
+        )
         object.__setattr__(
             self,
             "buffer_remaining_frames",
-            _coerce_non_negative_int(self.buffer_remaining_frames, name="buffer_remaining_frames"),
+            _coerce_non_negative_int(
+                self.buffer_remaining_frames, name="buffer_remaining_frames"
+            ),
         )
         object.__setattr__(self, "request_id", _request_id(self.request_id))
         if self.last_plan_id is not None:
@@ -117,9 +141,13 @@ class RobotStateRequest:
         return encode_message(header, arrays)
 
     @classmethod
-    def from_message(cls, header: Mapping[str, Any], arrays: Mapping[str, np.ndarray]) -> "RobotStateRequest":
+    def from_message(
+        cls, header: Mapping[str, Any], arrays: Mapping[str, np.ndarray]
+    ) -> RobotStateRequest:
         if header.get("kind") != KIND_ROBOT_STATE_REQUEST:
-            raise ValueError(f"Expected message kind {KIND_ROBOT_STATE_REQUEST}, got {header.get('kind')}")
+            raise ValueError(
+                f"Expected message kind {KIND_ROBOT_STATE_REQUEST}, got {header.get('kind')}"
+            )
         if "qpos_36_history" not in arrays:
             raise KeyError("robot_state_request payload is missing qpos_36_history")
         return cls(
@@ -147,7 +175,9 @@ class MotionPlanChunk:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "qpos_36", _coerce_qpos_36(self.qpos_36, name="qpos_36"))
+        object.__setattr__(
+            self, "qpos_36", _coerce_qpos_36(self.qpos_36, name="qpos_36")
+        )
         object.__setattr__(self, "fps", _coerce_fps(self.fps, name="fps"))
         object.__setattr__(self, "request_id", _request_id(self.request_id))
         object.__setattr__(self, "plan_id", int(self.plan_id))
@@ -156,11 +186,15 @@ class MotionPlanChunk:
         object.__setattr__(
             self,
             "request_tracker_frame",
-            _coerce_non_negative_int(self.request_tracker_frame, name="request_tracker_frame"),
+            _coerce_non_negative_int(
+                self.request_tracker_frame, name="request_tracker_frame"
+            ),
         )
         latency = float(self.planning_latency_seconds)
         if not np.isfinite(latency) or latency < 0.0:
-            raise ValueError(f"planning_latency_seconds must be non-negative and finite, got {latency}")
+            raise ValueError(
+                f"planning_latency_seconds must be non-negative and finite, got {latency}"
+            )
         object.__setattr__(self, "planning_latency_seconds", latency)
         if self.motion_features is not None:
             features = np.asarray(self.motion_features, dtype=np.float32)
@@ -171,7 +205,9 @@ class MotionPlanChunk:
                 )
             if not np.isfinite(features).all():
                 raise ValueError("motion_features contains non-finite values")
-            object.__setattr__(self, "motion_features", features.astype(np.float32, copy=False))
+            object.__setattr__(
+                self, "motion_features", features.astype(np.float32, copy=False)
+            )
         object.__setattr__(self, "metadata", dict(self.metadata))
 
     def to_message(self) -> tuple[bytes, bytes]:
@@ -193,9 +229,13 @@ class MotionPlanChunk:
         return encode_message(header, arrays)
 
     @classmethod
-    def from_message(cls, header: Mapping[str, Any], arrays: Mapping[str, np.ndarray]) -> "MotionPlanChunk":
+    def from_message(
+        cls, header: Mapping[str, Any], arrays: Mapping[str, np.ndarray]
+    ) -> MotionPlanChunk:
         if header.get("kind") != KIND_MOTION_PLAN_CHUNK:
-            raise ValueError(f"Expected message kind {KIND_MOTION_PLAN_CHUNK}, got {header.get('kind')}")
+            raise ValueError(
+                f"Expected message kind {KIND_MOTION_PLAN_CHUNK}, got {header.get('kind')}"
+            )
         if "qpos_36" not in arrays:
             raise KeyError("motion_plan_chunk payload is missing qpos_36")
         return cls(

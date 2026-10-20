@@ -275,7 +275,7 @@ def _with_representation_rotation(
     if rotation_representation is not None:
         patched["rotation_representation"] = str(rotation_representation)
     if num_frames is not None:
-        fps = float(patched.get("fps", 30.0))
+        fps = float(patched.get("fps", 50.0))
         patched["sequence_duration"] = int(num_frames) / fps
     return patched
 

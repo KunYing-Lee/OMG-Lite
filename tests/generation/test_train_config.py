@@ -16,14 +16,14 @@ GENERATION_CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs" / "gener
 @pytest.mark.parametrize(
     ("exp_name", "train_batch_size", "accumulate_grad_batches"),
     [
-        ("50m", 192, 1),
-        ("100m", 192, 1),
-        ("300m", 128, 1),
-        ("500m", 64, 3),
-        ("1b", 32, 6),
+        ("50m", 768, 1),
+        ("100m", 768, 1),
+        ("300m", 768, 1),
+        ("500m", 768, 1),
+        ("1b", 768, 1),
     ],
 )
-def test_experiment_presets_share_omnimodal_sinusoidal_training_protocol(
+def test_experiment_presets_share_native50_sinusoidal_training_protocol(
     exp_name: str,
     train_batch_size: int,
     accumulate_grad_batches: int,
@@ -33,19 +33,19 @@ def test_experiment_presets_share_omnimodal_sinusoidal_training_protocol(
 
     assert all(float(value) == 0.0 for key, value in cfg.loss.items() if key != "_target_")
     assert cfg.model.history_pos_encoding == "sinusoidal"
-    assert cfg.model.use_audio is True
-    assert cfg.model.use_human_motion is True
+    assert cfg.model.use_audio is False
+    assert cfg.model.use_human_motion is False
     assert cfg.denoiser.self_attention_qk_norm is True
     assert cfg.denoiser.cross_attention_qk_norm is True
-    assert cfg.trainer.devices == 4
-    assert cfg.trainer.max_steps == 180000
+    assert cfg.trainer.devices == 8
+    assert cfg.trainer.max_steps == 49431
     assert cfg.trainer.accumulate_grad_batches == accumulate_grad_batches
     assert cfg.model.optimizer.lr == 1.0e-4
-    assert cfg.model.scheduler.t_max == 180000
+    assert cfg.model.scheduler.t_max == 49431
     assert cfg.data.loader_opts.train.batch_size == train_batch_size
-    assert cfg.data.loader_opts.train.num_workers == 2
+    assert cfg.data.loader_opts.train.num_workers == 4
     assert cfg.data.loader_opts.train.prefetch_factor == 2
-    assert list(cfg.data.dataset_opts.train) == ["omg_data_materialized_omnimodal_train"]
+    assert list(cfg.data.dataset_opts.train) == ["omg_50hz_train"]
 
 
 def test_trainer_config_disables_sampler_replacement_for_custom_train_sampler():

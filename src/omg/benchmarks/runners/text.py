@@ -692,7 +692,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ckpt_path", default=None)
     parser.add_argument("--ckpts", nargs="+", default=None)
     parser.add_argument("--exp", required=True)
-    parser.add_argument("--data", default="omg_data_lerobot_omnimodal")
+    parser.add_argument("--data", default="omg_data_50hz")
     parser.add_argument("--output_dir", default=None)
     parser.add_argument("--split", choices=["train", "val", "test"], default="test")
     parser.add_argument(

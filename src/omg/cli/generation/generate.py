@@ -479,7 +479,7 @@ def _val_dataset(cfg, *, num_frames: int):
     dataset_cfg = next(iter(cfg.data.dataset_opts.val.values())).copy()
     if dataset_cfg.get("_target_") != "omg.data.lerobot_dataset.LeRobotG1MotionDataset":
         raise TypeError("Generation sample selection requires the canonical LeRobot data config")
-    fps = float(dataset_cfg.get("fps", 30.0))
+    fps = float(dataset_cfg.get("fps", 50.0))
     dataset_cfg["sequence_duration"] = int(num_frames) / fps
     return datamodule._instantiate_dataset(dataset_cfg)
 
@@ -634,7 +634,7 @@ def _parse_args() -> argparse.Namespace:
         help="Alpha for the translucent GT robot overlaid on the generated robot.",
     )
     parser.add_argument("--render_video", action="store_true")
-    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--fps", type=int, default=50)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--camera_view", choices=["iso", "side", "both"], default="iso")

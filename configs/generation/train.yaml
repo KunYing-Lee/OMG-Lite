@@ -1,5 +1,5 @@
 defaults:
-  - data: omg_data_lerobot
+  - data: omg_data_50hz_cached
   - representation: 38d
   - denoiser: transformer
   - diffusion: guided_x0

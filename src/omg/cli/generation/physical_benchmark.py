@@ -12,7 +12,7 @@ from omg.generation.metrics import physical_qpos_metrics
 from omg.motion.representation import G1MotionRepresentation
 
 DEFAULT_QPOS_KEYS = ("executed_qpos_36", "qpos_36", "qpos", "reference_qpos_36")
-DEFAULT_STATS_PATH = "assets/stats/g1_125d_stats.json"
+DEFAULT_STATS_PATH = "assets/stats/g1_125d_50hz_hist10_stats.json"
 DEFAULT_KINEMATICS_PATH = "assets/robots/g1/g1_kinematics.json"
 
 
@@ -85,7 +85,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         num_prev_states=10,
         canonical_frame_idx=9,
         feat_dim=125,
-        sequence_length=60,
+        sequence_length=100,
     ).to(device).eval()
 
     with torch.inference_mode():

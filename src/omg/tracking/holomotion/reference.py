@@ -4,7 +4,7 @@ import math
 from typing import Any
 
 import numpy as np
-from scipy.spatial.transform import Rotation, Slerp
+from scipy.spatial.transform import Rotation
 
 
 def normalize_quat_wxyz(q: np.ndarray) -> np.ndarray:
@@ -114,32 +114,11 @@ def body_angvel_from_quats(quats_wxyz: np.ndarray, fps: float) -> np.ndarray:
     return out.astype(np.float32, copy=False)
 
 
-def resample_qpos(qpos_36: np.ndarray, source_fps: float, target_fps: float) -> np.ndarray:
-    qpos_36 = np.asarray(qpos_36, dtype=np.float32)
-    if qpos_36.ndim != 2 or qpos_36.shape[1] != 36:
-        raise ValueError(f"Expected qpos_36 shape (T,36), got {qpos_36.shape}")
-    if np.isclose(float(source_fps), float(target_fps)):
-        out = qpos_36.copy()
-        out[:, 3:7] = np.stack([normalize_quat_wxyz(q) for q in out[:, 3:7]], axis=0)
-        return out.astype(np.float32, copy=False)
-    if qpos_36.shape[0] == 1:
-        out = qpos_36.copy()
-        out[:, 3:7] = normalize_quat_wxyz(out[0, 3:7])
-        return out.astype(np.float32, copy=False)
-    source_t = np.arange(qpos_36.shape[0], dtype=np.float64) / float(source_fps)
-    duration = float(source_t[-1])
-    target_frames = int(np.floor(duration * float(target_fps))) + 1
-    target_t = np.arange(target_frames, dtype=np.float64) / float(target_fps)
-    target_t = np.clip(target_t, source_t[0], source_t[-1])
-    out = np.empty((target_frames, 36), dtype=np.float32)
-    for dim in list(range(3)) + list(range(7, 36)):
-        out[:, dim] = np.interp(target_t, source_t, qpos_36[:, dim]).astype(np.float32)
-    quat_wxyz = np.stack([normalize_quat_wxyz(q) for q in qpos_36[:, 3:7]], axis=0)
-    slerp = Slerp(source_t, Rotation.from_quat(quat_wxyz[:, [1, 2, 3, 0]]))
-    target_xyzw = slerp(target_t).as_quat().astype(np.float32)
-    out[:, 3:7] = target_xyzw[:, [3, 0, 1, 2]]
-    out[:, 3:7] = np.stack([normalize_quat_wxyz(q) for q in out[:, 3:7]], axis=0)
-    return out.astype(np.float32, copy=False)
+def native_qpos(qpos_36: np.ndarray, source_fps: float, target_fps: float = 50.) -> np.ndarray:
+    if float(source_fps) != 50. or float(target_fps) != 50.:
+        raise ValueError("OMG-Lite accepts native 50Hz motion only; convert datasets outside the runtime")
+    from omg.pipeline.schedule import motion
+    return motion(qpos_36)
 
 
 def g1_qpos_joint_slice_to_onnx(qpos_g1: np.ndarray, onnx_to_g1: np.ndarray) -> np.ndarray:
@@ -216,6 +195,7 @@ def build_holomotion_obs(
     context_length: int = 1,
     obs_schema_version: str = "v1_2",
     robot_history: dict[str, list[np.ndarray]] | None = None,
+    robot_state: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     total_frames = int(ref_features["qpos_g1"].shape[0])
     if total_frames <= 0:
@@ -226,7 +206,13 @@ def build_holomotion_obs(
         raise ValueError(f"context_length must be positive, got {context_length}")
     hist_idx = history_indices(frame_idx, total_frames, context_length)
     fut_idx = future_indices(frame_idx, total_frames, n_fut_frames)
-    projected_gravity, root_ang_vel, dof_pos, dof_vel = current_robot_obs_terms(data, g1_handles, holomotion_handles)
+    if robot_state is None:
+        projected_gravity, root_ang_vel, dof_pos, dof_vel = current_robot_obs_terms(data, g1_handles, holomotion_handles)
+    else:
+        projected_gravity = gravity_orientation_wxyz(robot_state['root_quat_wxyz'])
+        root_ang_vel = np.asarray(robot_state['gyro'], dtype=np.float32)
+        dof_pos = np.asarray(robot_state['joint_pos'], dtype=np.float32)[holomotion_handles.onnx_to_g1] - holomotion_handles.default_joint_pos
+        dof_vel = np.asarray(robot_state['joint_vel'], dtype=np.float32)[holomotion_handles.onnx_to_g1]
     if obs_schema_version not in {"v1_2", "v1_3"}:
         raise ValueError(f"Unsupported HoloMotion observation schema version {obs_schema_version!r}")
     include_heading_features = obs_schema_version == "v1_3"
@@ -235,7 +221,7 @@ def build_holomotion_obs(
     yaw_error = None
     if include_heading_features:
         robot_root_quat = normalize_quat_wxyz(
-            np.asarray(data.xquat[g1_handles["pelvis_body_id"]], dtype=np.float32)
+            np.asarray(data.xquat[g1_handles["pelvis_body_id"]] if robot_state is None else robot_state["root_quat_wxyz"], dtype=np.float32)
         )
         ref_root_quat = ref_features["ref_root_quat_wxyz"]
         yaw_error = np.asarray(

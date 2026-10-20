@@ -572,7 +572,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Pinned omg.benchmark.sample.v2 manifest matching generated_qpos order.",
     )
     parser.add_argument("--exp", required=True)
-    parser.add_argument("--data", default="omg_data_lerobot_omnimodal")
+    parser.add_argument("--data", default="omg_data_50hz")
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--split", choices=["val", "test"], default="test")
     parser.add_argument("--datasets", nargs="+", default=None)

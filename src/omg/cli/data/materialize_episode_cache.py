@@ -220,7 +220,7 @@ def write_episode_cache(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Materialize exact frame-level G1 episode kinematics caches.")
-    parser.add_argument("--data-config", type=Path, default=Path("configs/generation/data/omg_data_lerobot.yaml"))
+    parser.add_argument("--data-config", type=Path, default=Path("configs/generation/data/omg_data_50hz.yaml"))
     parser.add_argument(
         "--representation-config",
         type=Path,

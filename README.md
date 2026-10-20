@@ -1,375 +1,89 @@
-<div align="center">
-  <p>
-    <img src="assets/title.svg" alt="OMG: Omni-Modal Motion Generation for Generalist Humanoid Control" width="900">
-  </p>
-  <p>
-    Official repository for <strong>OMG: Omni-Modal Motion Generation for Generalist Humanoid Control</strong>.
-  </p>
-  <p>
-    <a href="https://arxiv.org/"><img src="https://img.shields.io/badge/arXiv-Paper-b31b1b.svg" alt="arXiv"></a>
-    <a href="https://tsinghua-mars-lab.github.io/OMG/"><img src="https://img.shields.io/badge/Website-Page-Green" alt="Website"></a>
-    <a href="https://huggingface.co/THU-MARS/OMG"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model-OMG-FFD21E" alt="Hugging Face model"></a>
-    <a href="https://huggingface.co/datasets/THU-MARS/OMG-Data"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-OMG--Data-FFD21E" alt="Hugging Face dataset"></a>
-  </p>
-  <p>
-    <img src="assets/teaser.png" alt="OMG teaser" width="900">
-  </p>
-</div>
+# OMG-Lite
 
-## News
+Native **50Hz**, text-conditioned motion generation and HoloMotion tracking.
+Training defaults to a 50M **38D** pose model; matching 50Hz **125D** checkpoints
+are also supported. See [pose representation](docs/pose38.md).
 
-🚩 **Jul. 2026**: OMG won **ExWBC@RSS 2026 Oral, RoboData@RSS 2026 Spotlight**, congrats!<br>
-🚩 **Jun. 2026**: We release preprint, code and data for [OMG](https://arxiv.org/abs/2606.10340).
+## One pipeline
 
-## OMG-Lite 38D branch
+- Generate 100 frames (2 seconds), conditioned on 10 history frames.
+- Configure `--switch-seconds` (default **1.0**, minimum **0.5**, maximum **2.0**).
+  Values must be exact 20ms frame increments; invalid values are rejected.
+- For a period of P frames, request at P−25 using **raw frames P−10 through P−1**;
+  new plan frame 0 starts at P. Generation always starts 0.5s before switching.
+- Publish the new future reference as soon as ready. The tracker previews ten
+  frames and velocity needs one more sample: accept before consuming frame P−11.
+  This leaves 280ms for inference and transport at every supported period.
+- `sync` pauses simulation during inference. `async` continues tracking with
+  wall-clock deadlines. They share the same raw-plan timeline.
+- No interpolation, alignment, smoothing, skipped generated frames, or late
+  plan substitution. Unsupported frame rates and missed deadlines are errors.
 
-Training defaults to 38D pose diffusion with optional differentiable FK loss.
-See [representation, dataset reuse and statistics migration](docs/pose38.md).
+History after startup is **planned**, not measured: this schedule alone does
+not correct tracking drift or guarantee continuity at a generated boundary.
 
-## Pipeline
-
-The usual end-to-end workflow is:
-
-1. Install the environment.
-2. Download OMG-Data, model checkpoints, and HoloMotion artifacts.
-3. Materialize OMG-Data for faster training.
-4. Compute normalization stats.
-5. Train a diffusion model.
-6. Export ONNX for TensorRT/CUDA inference.
-7. Run generation or full pipeline modes.
-8. Run benchmarks.
-9. Deploy to a G1 robot when needed.
-
-## 1. Install
+## Install and artifacts
 
 ```bash
-cd /path/to/OMG
 make venv
 source .venv/bin/activate
 make install
-
 export PYTHONPATH=src
-export TOKENIZERS_PARALLELISM=false
 ```
 
-For China mainland networks:
+Use a native 50Hz dataset/cache and matching stats; the original 30Hz OMG
+release is not a runtime input. Set `OMG_DATA_ROOT`, `OMG_MATERIALIZED_ROOT`,
+and `OMG_MODELS_ROOT` for your storage. See [data](docs/data.md).
+
+The [50Hz epoch3 125D checkpoint](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/updated/50Hz/sstep=049431.ckpt)
+is step 49431. It is **not** a 38D checkpoint. Pair it with its saved resolved
+training config and `assets/stats/g1_125d_50hz_hist10_stats.json`.
+Download HoloMotion v1.4.1 separately from its official release.
+
+## Train
 
 ```bash
-make install-cn
+python -m omg.cli.generation.train exp=base
+# Explicit 125D model, same native 50Hz protocol:
+python -m omg.cli.generation.train exp=base representation=125d
 ```
 
-See [Installation](docs/installation.md) for manual `uv` commands and optional
-task-specific extras.
+`base` uses 100 prediction frames, history10, sinusoidal history encoding,
+Q/K norm, global batch6144 on eight GPUs, and three epochs. Model-size presets
+inherit this protocol. See [training](docs/training_50hz.md).
 
-## 2. Download Data and Artifacts
-
-OMG-Data is released as an official LeRobotDataset v3 dataset. Pretrained model
-checkpoints and the benchmark evaluator are available from the official
-[THU-MARS/OMG Hugging Face repository](https://huggingface.co/THU-MARS/OMG):
-
-- [OMG-Data](https://huggingface.co/datasets/THU-MARS/OMG-Data)
-- [Materialized OMG-Data]() (coming soon)
-- [OMG checkpoints and evaluator](https://huggingface.co/THU-MARS/OMG/tree/main)
-
-| Model | Training step | Checkpoint |
-| --- | ---: | --- |
-| OMG 50M | 90,000 | [`checkpoints/50m/sstep=090000.ckpt`](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/50m/sstep%3D090000.ckpt) |
-| OMG 100M | 100,000 | [`checkpoints/100m/sstep=100000.ckpt`](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/100m/sstep%3D100000.ckpt) |
-| OMG 300M | 55,000 | [`checkpoints/300m/sstep=055000.ckpt`](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/300m/sstep%3D055000.ckpt) |
-| OMG 500M | 50,000 | [`checkpoints/500m/sstep=050000.ckpt`](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/500m/sstep%3D050000.ckpt) |
-
-The pretrained benchmark evaluator is available at
-[`evaluator/step_004000.pt`](https://huggingface.co/THU-MARS/OMG/blob/main/evaluator/step_004000.pt).
-Release checksums are listed in
-[`SHA256SUMS`](https://huggingface.co/THU-MARS/OMG/blob/main/SHA256SUMS).
-
-Text-conditioned training and generation require the Hugging Face `t5-base`
-text encoder. By default, configs load it from `${OMG_MODELS_ROOT}/t5-base-local`.
-Download [t5-base](https://huggingface.co/google-t5/t5-base) for offline runs, or override
-`model.text_encoder.model_name` with another local path or Hugging Face model id.
-
-HoloMotion weights are not redistributed by OMG. Download HoloMotion models from the official [HoloMotion repository](https://github.com/HorizonRobotics/HoloMotion) or [HoloMotion Hugging Face artifacts](https://huggingface.co/HorizonRobotics/HoloMotion_models).
-
-Recommended local layout:
-
-```text
-data/OMG-Data/
-  data/
-  meta/
-  materialized/
-models/
-  generation/
-  evaluator/
-  t5-base-local/
-  holomotion/
-    motion_tracking/model.onnx
-    velocity_tracking/model.onnx
-```
-
-Set explicit roots when using external storage:
+## Simulate
 
 ```bash
-export OMG_DATA_ROOT=/path/to/OMG-Data
-export OMG_MATERIALIZED_ROOT=/path/to/OMG-Data/materialized
-export OMG_MODELS_ROOT=/path/to/OMG-models
-
-hf download THU-MARS/OMG-Data \
-  --type dataset \
-  --revision 6e0dfbc1c5298bff14d4e2b1459ad678af0a38e7 \
-  --local-dir "$OMG_DATA_ROOT"
-
-hf cache verify THU-MARS/OMG-Data \
-  --type dataset \
-  --revision 6e0dfbc1c5298bff14d4e2b1459ad678af0a38e7 \
-  --local-dir "$OMG_DATA_ROOT" \
-  --fail-on-missing-files
+python -m omg.cli.pipeline.main \
+  --config /path/to/resolved_training_config.yaml \
+  --checkpoint /path/to/sstep=049431.ckpt \
+  --tracker /path/to/model_16200_dynamic_batch.onnx \
+  --seed-motion /path/to/native_50hz_seed.npz \
+  --text 'walk forward' --mode sync --frames 500 --output outputs/sync_walk
 ```
 
-The data configs pin the official Hub commit and release-manifest SHA-256.
-`OMG_DATA_ROOT` must therefore contain that exact LeRobot v3 snapshot; an old
-or partially substituted local dataset is rejected during initialization.
+Use `--switch-seconds 0.5` for half-second switching, or omit it for one second.
+Use `--mode async` for real wall-clock execution with a persistent, independent
+planner process so inference does not block the tracker process. Both keep 50 DDIM steps and
+CFG2.5. The seed NPZ must contain `qpos_36` and scalar `fps=50`; at least ten
+valid history frames are required. Outputs retain raw plans and executed motion.
 
-## 3. Materialize Data
+## Robot deployment
 
-Materialization precomputes frame-level episode kinematics. It is recommended
-for full training because it removes repeated source parsing and FK while
-preserving the exact exhaustive stride-1 window set without duplicating
-overlapping window tensors.
+[Deployment](docs/realtime_g1.md) describes the GPU planner, Orin bridge and
+HoloMotion consumer hook. The old current-frame `obs65` bridge is removed: it
+cannot express the required preview. Physical arming, state estimation, PD and
+emergency stop remain owned by the robot controller. Simulation validation
+is not physical-robot acceptance.
 
+## Benchmark and development
 
-Generate the cache locally from the pinned source OMG-Data revision. A
-precomputed cache is valid only when its v2 source identity matches the active
-config exactly:
+Generate new native-50Hz manifests for the active dataset; do not reuse 30Hz
+window indices. See [benchmark](docs/benchmark.md) and
+[validation results](docs/native50_validation.md). Historical OMG pipelines remain in the OMG
+repository, not in this runtime.
 
-```bash
-scripts/materialize_omg_data.sh --overwrite
-```
+[MIT License](LICENSE)
 
-Validate every manifest, episode index, and frame tensor before use:
-
-```bash
-PYTHONPATH=src python -m omg.cli.data.validate_episode_cache \
-  "$OMG_MATERIALIZED_ROOT/omg_episode_cache_v2_rot6d_seq60_hist10_k1"
-```
-
-Episode cache v2 pins the originating LeRobot repository revision. Unpinned v1
-caches must be rebuilt; they are not accepted as release training input.
-
-Train with materialized data by using:
-
-```bash
-data=omg_data_materialized
-```
-
-For small debugging runs or custom tiny datasets, source data can be used
-directly with:
-
-```bash
-data=omg_data_lerobot
-```
-
-## 4. Compute Stats
-
-Compute normalization statistics before training. The default representation
-config expects the generated stats file at:
-
-```text
-assets/stats/g1_125d_stats.json
-```
-
-The materialized reader enumerates the same exhaustive windows as the source
-reader while reusing cached FK tensors.
-
-```bash
-PYTHONPATH=src python -m omg.cli.generation.compute_stats \
-  --data-config configs/generation/data/omg_data_materialized.yaml \
-  --representation-config configs/generation/representation/125d.yaml \
-  --paths-config configs/generation/paths/default.yaml \
-  --device cuda \
-  --output assets/stats/g1_125d_stats.json
-```
-
-For four-GPU exact statistics, use the same command through torchrun:
-
-```bash
-torchrun --standalone --nproc-per-node=4 -m omg.cli.generation.compute_stats \
-  --data-config configs/generation/data/omg_data_materialized.yaml \
-  --representation-config configs/generation/representation/125d.yaml \
-  --paths-config configs/generation/paths/default.yaml \
-  --device cuda \
-  --output assets/stats/g1_125d_stats.json
-```
-
-Recompute this file whenever the training data, representation, sequence
-length, or preprocessing changes.
-
-## 5. Train
-
-The default `exp=base` is now the 50Hz text-only 50M, three-epoch protocol
-(global batch 6144 on eight GPUs). It requires an externally prepared 50Hz cache
-and matching 125D statistics; the 30Hz preparation commands above do not produce
-those inputs. See [50Hz pretraining](docs/training_50hz.md) for the exact launch,
-artifact requirements, fixed evaluation and runtime optimizations.
-
-The explicit `exp=50m` preset below retains the previous 30Hz protocol:
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
-PYTHONPATH=src python -m omg.cli.generation.train \
-  exp=50m \
-  data=omg_data_materialized \
-  trainer=4gpu \
-  logger=wandb \
-  exp_name=50m_release_train
-```
-
-Model-size configs are available under `configs/generation/exp/`:
-
-```text
-50m.yaml  100m.yaml  300m.yaml  500m.yaml  1b.yaml
-```
-
-See [Training](docs/training.md) for resume, initialization, and config details.
-
-## 6. Export ONNX
-
-Export a TensorRT-compatible denoiser step from a checkpoint:
-
-```bash
-PYTHONPATH=src python -m omg.cli.generation.export_onnx \
-  --exp 50m \
-  --ckpt_path outputs/50m_release_train/checkpoints/last.ckpt \
-  --output models/generation/onnx/50m/last_denoiser_step.onnx \
-  --batch_size 2 \
-  --device cuda
-```
-
-The exporter writes a metadata sidecar next to the ONNX file. Runtime planners
-use it to recover sequence length, condition dimensions, representation, and
-diffusion settings. New checkpoints record their attention architecture and the
-exporter rejects a mismatched config. For checkpoints created before this
-contract existed, declare the training semantics explicitly; for example, a
-checkpoint trained with cross-attention QK normalization only requires:
-
-```bash
-PYTHONPATH=src python -m omg.cli.generation.export_onnx \
-  --exp 100m \
-  --ckpt_path /path/to/legacy.ckpt \
-  --legacy-attention-contract cross-only \
-  denoiser.self_attention_qk_norm=false \
-  denoiser.cross_attention_qk_norm=true
-```
-
-Export is fail-closed: it numerically compares the training denoiser, the
-TensorRT-compatible wrapper, and the emitted ONNX graph before retaining the
-artifact.
-
-## 7. Generate and Track
-
-Offline async generation with HoloMotion tracking:
-
-```bash
-PYTHONPATH=src python -m omg.cli.pipeline.main \
-  --mode async \
-  --diffusion-onnx models/generation/onnx/50m/last_denoiser_step.onnx \
-  --holomotion-onnx models/holomotion/motion_tracking/model.onnx \
-  --seed-motion /path/to/seed_motion.npz \
-  --condition-sequence "text: walk forward" \
-  --num-frames 300 \
-  --video \
-  --output-root outputs_pipeline
-```
-
-Supported pipeline modes:
-
-- `diffusion-only`
-- `tracker-only`
-- `sync`
-- `async`
-- `offline-track`
-
-See [Generation](docs/generation.md) and [Tracking](docs/tracking.md).
-
-## 8. Benchmark
-
-Benchmarks that report evaluator-based distribution and retrieval metrics use a
-pretrained evaluator checkpoint:
-
-```text
-https://huggingface.co/THU-MARS/OMG/blob/main/evaluator/step_004000.pt
-```
-
-Recommended local path:
-
-```text
-models/evaluator/pretrained.ckpt
-```
-
-The validated release manifests are versioned under
-`assets/benchmarks/mixed_modalities_all_v2`. Regenerate them from the pinned
-dataset only when intentionally defining a new benchmark release:
-
-```bash
-PYTHONPATH=src python -m omg.cli.evaluation.prepare_samples \
-  --data omg_data_lerobot_omnimodal \
-  --output_dir outputs/benchmark_samples/mixed_modalities_all_v2
-```
-
-Run text, audio, human-reference, or artifact benchmarks:
-
-```bash
-PYTHONPATH=src python -m omg.cli.generation.benchmark text \
-  --exp 50m \
-  --ckpt_path outputs/50m_release_train/checkpoints/last.ckpt \
-  --evaluator_checkpoint models/evaluator/pretrained.ckpt \
-  --samples_path assets/benchmarks/mixed_modalities_all_v2/text_test_1024.jsonl \
-  --output_dir outputs/benchmarks/50m_text
-```
-
-See [Benchmark](docs/benchmark.md) for modality-specific commands and
-tracker-executed evaluation.
-
-## 9. Deploy
-
-Realtime deployment uses:
-
-- HoloMotion deployment on the G1 Orin.
-- OMG realtime planner server on a GPU workstation.
-- OMG real bridge on the G1 Orin.
-
-For real-robot deployment, prefer the HoloMotion velocity-tracking model:
-
-```text
-models/holomotion/velocity_tracking/model.onnx
-```
-
-See [Realtime G1 Deployment](docs/realtime_g1.md) for the full launch sequence.
-
-## Documentation
-
-- [Installation](docs/installation.md)
-- [Artifacts](docs/artifacts.md)
-- [Data](docs/data.md)
-- [Training](docs/training.md)
-- [Generation](docs/generation.md)
-- [Tracking](docs/tracking.md)
-- [Realtime G1 Deployment](docs/realtime_g1.md)
-- [Benchmark](docs/benchmark.md)
-- [Configuration](docs/configuration.md)
-- [Development](docs/development.md)
-
-## License
-
-This project is released under the [MIT License](LICENSE).
-
-## Citation
-
-If you find our code useful, please consider citing our work:
-```
-@article{huang2026omg,
-  title={OMG: Omni-Modal Motion Generation for Generalist Humanoid Control},
-  author={Huang, Siqiao and Lee, Kun-Ying and Qiao, Dongming and He, Guanqi and Wang, Zhenyu and Li, Yitang and Zhu, Shaoting and Zhao, Hang},
-  journal={arXiv preprint arXiv:2606.10340},
-  year={2026}
-}
-```
+Half-second schedule evaluation: [validation report](docs/half_second_validation.md).

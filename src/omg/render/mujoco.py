@@ -40,7 +40,7 @@ class UrdfJoint:
     axis_xyz: np.ndarray | None
 
 
-def save_video(frames_rgb: np.ndarray, output_path: str | Path, fps: int = 30) -> Path:
+def save_video(frames_rgb: np.ndarray, output_path: str | Path, fps: int = 50) -> Path:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     frames_rgb = np.asarray(frames_rgb, dtype=np.uint8)
@@ -595,7 +595,14 @@ def render_qpos_frames(
 
     all_body_pos = body_pos_w.reshape(-1, 3)
     center = 0.5 * (all_body_pos.min(axis=0) + all_body_pos.max(axis=0))
-    radius = max(float(np.linalg.norm(all_body_pos.max(axis=0) - all_body_pos.min(axis=0))), 1.5)
+    # A following camera frames the body, not the entire travelled trajectory.
+    framing = body_pos_w.copy()
+    if follow_mode in {"xy", "xyz", "heading"}:
+        framing[..., :2] -= body_pos_w[:, :1, :2]
+    if follow_mode in {"xyz", "heading"}:
+        framing[..., 2] -= body_pos_w[:, :1, 2]
+    framing = framing.reshape(-1, 3)
+    radius = max(float(np.linalg.norm(framing.max(axis=0) - framing.min(axis=0))), 1.5)
     distance = radius * 1.35 * float(camera_distance_scale)
     frames = []
     info_lines = _overlay_lines(overlay_lines)
@@ -942,7 +949,7 @@ def render_qpos_multi_frames(
 def render_qpos_video(
     qpos_36: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     elevation: float = -18.0,
@@ -1036,7 +1043,7 @@ def render_qpos_comparison_video(
     left_qpos_36: torch.Tensor | np.ndarray,
     right_qpos_36: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     elevation: float = -18.0,
@@ -1251,7 +1258,7 @@ def render_human_motion_frames(
 def render_human_motion_video(
     human_motion: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     title: str = "Human Reference",
@@ -1280,7 +1287,7 @@ def render_robot_human_comparison_video(
     qpos_36: torch.Tensor | np.ndarray,
     human_motion: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    fps: int = 30,
+    fps: int = 50,
     width: int = 1280,
     height: int = 720,
     camera_view: str = "iso",

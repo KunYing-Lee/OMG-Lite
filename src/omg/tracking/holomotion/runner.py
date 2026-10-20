@@ -28,7 +28,7 @@ from omg.tracking.holomotion.io import load_reference_motion  # noqa: E402
 from omg.tracking.holomotion.reference import (  # noqa: E402
     build_holomotion_obs,
     precompute_reference_features,
-    resample_qpos,
+    native_qpos,
 )
 from omg.tracking.holomotion.rollout import default_rollout_path, save_tracker_rollout  # noqa: E402
 from omg.tracking.holomotion.runtime import (  # noqa: E402
@@ -181,7 +181,7 @@ class HoloMotionRolloutRunner:
     def append_seed_video(self, qpos_36: np.ndarray, *, reference_fps: float) -> int:
         if self.writer is None:
             return 0
-        qpos_ref = resample_qpos(
+        qpos_ref = native_qpos(
             qpos_36,
             source_fps=float(reference_fps),
             target_fps=self.target_fps,
@@ -241,8 +241,9 @@ class HoloMotionRolloutRunner:
         init_qpos_36: np.ndarray | None = None,
         init_qvel_35: np.ndarray | None = None,
         push_events: list[PushEvent] | None = None,
-        qpos_ref_resampled: np.ndarray | None = None,
         record_buffers: bool = True,
+        reference_cursor: int = 0,
+        reference_features: dict | None = None,
         frame_callback: Callable[[int, np.ndarray, np.ndarray, np.ndarray], None] | None = None,
         stop_condition: Callable[
             [int, np.ndarray, np.ndarray, np.ndarray], bool
@@ -251,34 +252,31 @@ class HoloMotionRolloutRunner:
         overlay_text: str | None = None,
         overlay_text_by_frame: list[str] | tuple[str, ...] | np.ndarray | None = None,
     ) -> TrackerChunkResult:
-        if qpos_ref_resampled is not None:
-            qpos_ref = np.asarray(qpos_ref_resampled, dtype=np.float32)
-            if qpos_ref.ndim != 2 or qpos_ref.shape[1] != qpos_36.shape[1]:
-                raise ValueError(
-                    f"qpos_ref_resampled must be (T, {qpos_36.shape[1]}), got {qpos_ref.shape}"
-                )
-        else:
-            qpos_ref = resample_qpos(qpos_36, source_fps=float(reference_fps), target_fps=self.target_fps)
-        frame_limit = qpos_ref.shape[0] if steps is None else min(int(steps), qpos_ref.shape[0])
+        qpos_ref = native_qpos(qpos_36, source_fps=float(reference_fps), target_fps=self.target_fps)
+        reference_cursor = int(reference_cursor)
+        if not 0 <= reference_cursor < qpos_ref.shape[0]:
+            raise ValueError("reference_cursor is outside the reference")
+        available = qpos_ref.shape[0] - reference_cursor
+        frame_limit = available if steps is None else min(int(steps), available)
         plan_horizon_frames = int(qpos_ref.shape[0] if plan_horizon is None else plan_horizon)
         if plan_horizon_frames <= 0:
             raise ValueError(f"plan_horizon must be positive, got {plan_horizon_frames}")
         if frame_limit <= 0:
             raise ValueError("No rollout frames requested")
-        if overlay_text_by_frame is not None and len(overlay_text_by_frame) < frame_limit:
+        if overlay_text_by_frame is not None and len(overlay_text_by_frame) < reference_cursor + frame_limit:
             raise ValueError(
                 f"overlay_text_by_frame must have at least {frame_limit} entries, got {len(overlay_text_by_frame)}"
             )
         if not self.initialized:
-            init_qpos = qpos_ref[0] if init_qpos_36 is None else np.asarray(init_qpos_36, dtype=np.float32)
+            init_qpos = qpos_ref[reference_cursor] if init_qpos_36 is None else np.asarray(init_qpos_36, dtype=np.float32)
             self.reset(init_qpos, init_qvel_35)
-        ref_features = precompute_reference_features(
+        ref_features = reference_features if reference_features is not None else precompute_reference_features(
             qpos_ref,
             fps=self.target_fps,
             onnx_to_g1=self.holomotion_handles.onnx_to_g1,
         )
         start = len(self.executed_qpos_36)
-        for frame_idx in range(frame_limit):
+        for frame_idx in range(reference_cursor, reference_cursor + frame_limit):
             obs = build_holomotion_obs(
                 ref_features=ref_features,
                 frame_idx=frame_idx,

@@ -58,7 +58,7 @@ def test_default_and_opt_in_fk_configuration_and_backward():
     assert all(v == 0 for k, v in default.loss.items() if k != "_target_")
     for split in ("train", "val", "test"):
         assert all(not cfg.include_body_positions for cfg in default.data.dataset_opts[split].values())
-    representation = instantiate(enabled.representation, stats_path="assets/stats/g1_38d_stats.json")
+    representation = instantiate(enabled.representation, stats_path="assets/stats/g1_38d_50hz_hist10_stats.json")
     loss = instantiate(enabled.loss)
     codec, target, _, qpos, pos, quat = pose_features()
     pred = target.clone()
@@ -82,7 +82,7 @@ def test_diffusion_only_step_does_not_decode_fk(monkeypatch):
     config_dir = Path(__file__).resolve().parents[2] / "configs/generation"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
         cfg = compose(config_name="train")
-    representation = instantiate(cfg.representation, stats_path="assets/stats/g1_38d_stats.json")
+    representation = instantiate(cfg.representation, stats_path="assets/stats/g1_38d_50hz_hist10_stats.json")
     denoiser = instantiate(cfg.denoiser, hidden_dim=32, num_layers=1, num_heads=4, text_dim=32)
     generator = MotionGenerator(
         representation, denoiser, instantiate(cfg.diffusion), instantiate(cfg.loss),
@@ -110,7 +110,7 @@ def test_diffusion_only_step_does_not_decode_fk(monkeypatch):
 def test_stats_projection_preserves_matching_normalization(tmp_path):
     import json
     from omg.cli.generation.project_pose_stats import project_pose_stats
-    source = Path("assets/stats/g1_125d_stats.json")
+    source = Path("assets/stats/g1_125d_50hz_hist10_stats.json")
     output = tmp_path / "stats38.json"
     project_pose_stats(source, output)
     old, new = json.loads(source.read_text()), json.loads(output.read_text())

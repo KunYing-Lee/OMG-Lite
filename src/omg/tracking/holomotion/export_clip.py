@@ -10,7 +10,7 @@ from scipy.spatial.transform import Rotation
 
 from omg.robots.g1.constants import G1_JOINT_NAMES
 from omg.tracking.holomotion.io import load_reference_motion
-from omg.tracking.holomotion.reference import finite_difference, resample_qpos
+from omg.tracking.holomotion.reference import finite_difference, native_qpos
 from omg.tracking.holomotion.runtime import build_g1_state_handles, resolve_robot_xml, set_g1_qpos
 
 try:  # Optional outside tracking/deployment environments.
@@ -123,7 +123,7 @@ def build_holomotion_deployment_clip(
 
 def export_holomotion_deployment_clip(config: HoloMotionClipExportConfig) -> HoloMotionClipExportResult:
     reference = load_reference_motion(config.reference, fps=config.reference_fps)
-    qpos = resample_qpos(reference.qpos_36, source_fps=reference.fps, target_fps=float(config.target_fps))
+    qpos = native_qpos(reference.qpos_36, source_fps=reference.fps, target_fps=float(config.target_fps))
     payload = build_holomotion_deployment_clip(qpos, fps=float(config.target_fps), robot_xml=config.robot_xml)
     metadata = {
         "source_reference": str(reference.path),
