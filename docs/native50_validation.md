@@ -2,6 +2,48 @@
 
 Implemented in branch `codex/native-50hz-pipeline`.
 
+## Mars5090 acceptance
+
+RTX5090, PyTorch2.7.0/cu128, ORT1.23.2, MuJoCo3.7.0. The complete epoch3
+checkpoint SHA256 is
+`b66c884c991e53129a8a9d03310a47194a77604372a3b9c62f6814ab63d9100e`;
+tracker SHA256 is
+`15f7914f6460a1c2e71bc06191874146e7b4d1669dded095e072cf29aac7c056`.
+Full tests:202 passed. Graph replay matches ordinary50-step output exactly;
+one warmed inference measured199.3ms (cold ordinary call is not a speed baseline).
+
+The original same-process async implementation missed control tick28 for all
+three commands despite adequate total inference throughput. An independent
+planner service passed; default local async now uses one persistent spawned
+planner process, keeping CUDA inference outside the control process.
+No sampling, deadlines, histories or output motions were changed.
+
+| Command | Frames | Replans | Median inference | Maximum inference | Root RMSE |
+|---|---:|---:|---:|---:|---:|
+| walk forward |500|10|208.8ms|210.7ms|76.7cm|
+| squat down and stand up |500|10|208.3ms|209.0ms|12.8cm|
+| raise hands |500|10|209.1ms|209.9ms|4.9cm|
+
+All30 plans were accepted at local frame36, before deadline39. Raw plans,
+references and executed qpos matched sync **exactly** for each command.
+Timing includes actual50-step inference; this is not simulated latency.
+The separate70ms wall-clock fixed-plan test also passed450 frames per command.
+
+**Realtime scheduling passes these finite trials; motion quality is not fully
+accepted.** Walking has substantial absolute root drift. Maximum raw seam
+joint increments were0.176/0.235/0.422rad for walk/squat/hands. These are
+one-frame increments, not errors relative to a continuous ground truth.
+No smoothing, alignment or interpolation was applied. Following cameras are
+independent, so assess absolute root error from metrics, not screen centering.
+The renderer now frames the body for following views rather than zooming out
+to contain the full travelled path.
+
+Evidence on Mars:
+`/home/leeky/runs/omg_lite_native50_acceptance/`
+(`summary.json`, `isolated_async_*`, `sync_*`, original failing `async_*`,
+`checkpoint_replay.json`, `parity`, test logs and scripts).
+No robot was armed. This does not establish Orin/network/physical acceptance.
+
 ## Verified
 
 - Full repository test suite: **202 passed** (one dependency warning).

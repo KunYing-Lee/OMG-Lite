@@ -595,7 +595,14 @@ def render_qpos_frames(
 
     all_body_pos = body_pos_w.reshape(-1, 3)
     center = 0.5 * (all_body_pos.min(axis=0) + all_body_pos.max(axis=0))
-    radius = max(float(np.linalg.norm(all_body_pos.max(axis=0) - all_body_pos.min(axis=0))), 1.5)
+    # A following camera frames the body, not the entire travelled trajectory.
+    framing = body_pos_w.copy()
+    if follow_mode in {"xy", "xyz", "heading"}:
+        framing[..., :2] -= body_pos_w[:, :1, :2]
+    if follow_mode in {"xyz", "heading"}:
+        framing[..., 2] -= body_pos_w[:, :1, 2]
+    framing = framing.reshape(-1, 3)
+    radius = max(float(np.linalg.norm(framing.max(axis=0) - framing.min(axis=0))), 1.5)
     distance = radius * 1.35 * float(camera_distance_scale)
     frames = []
     info_lines = _overlay_lines(overlay_lines)

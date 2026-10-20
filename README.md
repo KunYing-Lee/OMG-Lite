@@ -61,7 +61,8 @@ python -m omg.cli.pipeline.main \
   --text 'walk forward' --mode sync --frames 500 --output outputs/sync_walk
 ```
 
-Use `--mode async` for real wall-clock execution. Both keep 50 DDIM steps and
+Use `--mode async` for real wall-clock execution with a persistent, independent
+planner process so inference does not block the tracker process. Both keep 50 DDIM steps and
 CFG2.5. The seed NPZ must contain `qpos_36` and scalar `fps=50`; at least ten
 valid history frames are required. Outputs retain raw plans and executed motion.
 

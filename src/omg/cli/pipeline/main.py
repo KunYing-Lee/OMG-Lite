@@ -31,7 +31,12 @@ def main():
     seed = np.load(args.seed_motion)
     assert float(seed["fps"]) == 50
     history = motion(seed["qpos_36"][-10:], 10)
-    planner = CheckpointPlanner(args.config, args.checkpoint, seed=args.seed)
+    if args.mode == "async":
+        from omg.pipeline.process import ProcessPlanner
+
+        planner = ProcessPlanner(args.config, args.checkpoint, seed=args.seed)
+    else:
+        planner = CheckpointPlanner(args.config, args.checkpoint, seed=args.seed)
     # Warm exact kernels before starting the async control clock.
     warm = planner.plan(history, args.text, 0)
     opts = ort.SessionOptions()
@@ -105,6 +110,8 @@ def main():
             fps=50,
         )
         runner.close()
+        if hasattr(planner, "close"):
+            planner.close()
 
 
 if __name__ == "__main__":
