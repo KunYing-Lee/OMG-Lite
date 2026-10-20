@@ -1,41 +1,67 @@
 # @package _global_
 defaults:
-  - override /data: omg_data_materialized_omnimodal
+  - override /data: omg_data_50hz_cached
   - override /model: motion_generator
-  - override /denoiser: transformer
+  - override /denoiser: transformer_50m
   - override /diffusion: guided_x0
   - override /loss: diffusion_only
-  - override /trainer: 4gpu
+  - override /trainer: 8gpu
+  - override /logger: csv
+  - _self_
 
-exp_name: base
+exp_name: 50m_50hz_text_hist10_b6144_3epochs_s1234
+seed: 1234
+ckpt_path: null
+init_weights_only_ckpt: null
+representation:
+  sequence_length: 100
+  num_prev_states: 10
+  canonical_frame_idx: 9
+  stats_path: ${oc.env:OMG50_STATS_PATH,assets/stats/g1_125d_50hz_hist10_stats.json}
 model:
   diffusion_target: future
   history_pos_encoding: sinusoidal
-  use_audio: true
-  use_human_motion: true
+  use_audio: false
+  use_human_motion: false
   log_loss_term_grad_norms: false
   optimizer:
     lr: 1.0e-4
     weight_decay: 0.01
   scheduler:
     type: linear_warmup_cosine
-    warmup_steps: 2000
+    warmup_steps: 250
     warmup_start_factor: 1.0e-4
-    t_max: 180000
+    t_max: 49431
     eta_min: 1.0e-6
 trainer:
-  max_steps: 180000
-  val_check_interval: 2000
+  max_epochs: 3
+  max_steps: 49431
+  val_check_interval: 250
   accumulate_grad_batches: 1
   limit_val_batches: 200
 callbacks:
   checkpoint:
-    every_n_train_steps: 2000
+    every_n_train_steps: 250
   divergence_guard:
     loss_monitor: diffusion_loss
+    warmup_steps: 250
+  fixed_validation_rng:
+    _target_: omg.callbacks.fixed_motion_eval.FixedValidationRNG
+    seed: 271828
+  fixed_motion_evaluation:
+    _target_: omg.callbacks.fixed_motion_eval.FixedMotionEvaluation
+    dirpath: ${output_dir}/fixed_evaluation
+    milestone_steps: [16477, 32954, 49431]
+    expected_batches_per_epoch: 16477
+    seed: 314159
+    loss_windows: 4096
+    generation_windows: 64
+    batch_size: 16
 data:
+  train_sampler_policy: balanced_shards
   loader_opts:
     train:
-      batch_size: 192
-      num_workers: 2
+      batch_size: 768
+      num_workers: 4
+      pin_memory: true
       prefetch_factor: 2

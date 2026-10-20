@@ -1,0 +1,39 @@
+_target_: omg.data.datamodule.GenerationDataModule
+limit_each_trainset: null
+train_subset_ratio: null
+rotation_representation: ${representation.rotation_representation}
+dataset_opts:
+  train:
+    omg_50hz_train:
+      _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
+      root: ${paths.materialized_root}/omg_50hz_text_rot6d_seq100_hist10_k1
+      source_repo_id: local/OMG-Data-50Hz
+      source_revision: sha256:ff4243bdc4dd1fb242ca9419cd99080329300de55bb7b70a417ca5055e8a843e
+      split: train
+  val:
+    omg_50hz_val:
+      _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
+      root: ${paths.materialized_root}/omg_50hz_text_rot6d_seq100_hist10_k1
+      source_repo_id: local/OMG-Data-50Hz
+      source_revision: sha256:ff4243bdc4dd1fb242ca9419cd99080329300de55bb7b70a417ca5055e8a843e
+      split: val
+  test:
+    omg_50hz_test:
+      _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
+      root: ${paths.materialized_root}/omg_50hz_text_rot6d_seq100_hist10_k1
+      source_repo_id: local/OMG-Data-50Hz
+      source_revision: sha256:ff4243bdc4dd1fb242ca9419cd99080329300de55bb7b70a417ca5055e8a843e
+      split: test
+loader_opts:
+  train:
+    batch_size: 96
+    num_workers: 2
+    prefetch_factor: 2
+  val:
+    batch_size: 16
+    num_workers: 2
+    prefetch_factor: 1
+  test:
+    batch_size: 16
+    num_workers: 2
+    prefetch_factor: 1

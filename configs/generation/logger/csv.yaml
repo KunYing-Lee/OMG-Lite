@@ -1,0 +1,5 @@
+enabled: true
+_target_: pytorch_lightning.loggers.CSVLogger
+save_dir: ${output_dir}
+name: metrics
+flush_logs_every_n_steps: 10

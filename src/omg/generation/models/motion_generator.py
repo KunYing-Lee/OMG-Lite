@@ -534,20 +534,24 @@ class MotionGenerator(pl.LightningModule):
         should_log_loss_term_grad_norms = self._should_log_loss_term_grad_norms(split)
         if should_log_loss_term_grad_norms or self._should_capture_guard_loss_term_grad_norms(split):
             loss_term_grad_norms = self._compute_loss_term_grad_norms(diff["diffusion_loss"], motion_terms)
+        metrics = {f"{split}/loss": total, f"{split}/diffusion_loss": diff["diffusion_loss"]}
+        metrics.update({
+            f"{split}/{name}": value for name, value in motion_terms.items()
+            if torch.is_tensor(value) and value.ndim == 0
+        })
         if should_log_loss_term_grad_norms and loss_term_grad_norms is not None:
-            self.log_dict(
-                {f"{split}/loss_term_grad_norm/{name}": value for name, value in loss_term_grad_norms.items()},
-                prog_bar=False,
-                on_step=True,
-                on_epoch=False,
-                batch_size=batch_size,
-                sync_dist=True,
-            )
-        self.log(f"{split}/loss", total, prog_bar=(split == "train"), batch_size=batch_size, sync_dist=True)
-        self.log(f"{split}/diffusion_loss", diff["diffusion_loss"], batch_size=batch_size, sync_dist=True)
-        for name, value in motion_terms.items():
-            if torch.is_tensor(value) and value.ndim == 0:
-                self.log(f"{split}/{name}", value, batch_size=batch_size, sync_dist=True)
+            metrics.update({f"{split}/loss_term_grad_norm/{name}": value for name, value in loss_term_grad_norms.items()})
+        if split == "train":
+            # Match Lightning's per-step rank mean, but reduce all scalar metrics
+            # of the same dtype/device together. The loss returned below stays local.
+            metrics = self._reduce_step_metrics(metrics)
+            for name, value in metrics.items():
+                self.log(name, value, prog_bar=(name == "train/loss"), batch_size=batch_size,
+                         on_step=True, on_epoch=False, sync_dist=False)
+        else:
+            # Epoch metrics retain Lightning's batch-weighted accumulation and sync.
+            for name, value in metrics.items():
+                self.log(name, value, batch_size=batch_size, sync_dist=True)
         if split == "train":
             self._last_train_diagnostics = self._build_train_diagnostics(
                 batch=batch,
@@ -630,6 +634,56 @@ class MotionGenerator(pl.LightningModule):
             return term.detach().new_zeros(())
         return torch.linalg.vector_norm(torch.stack(norms), ord=self.loss_term_grad_norm_norm_type)
 
+    def _reduce_step_metrics(self, metrics: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        groups: dict[tuple[torch.device, torch.dtype], list[tuple[str, torch.Tensor]]] = {}
+        for name, value in metrics.items():
+            # Lightning promotes integer, float16 and bfloat16 log values before reducing.
+            dtype = value.dtype if value.dtype in (torch.float32, torch.float64) else (
+                torch.float64 if torch.get_default_dtype() == torch.float64 else torch.float32
+            )
+            value = value.detach().to(dtype=dtype)
+            groups.setdefault((value.device, value.dtype), []).append((name, value))
+        reduced = {}
+        for group in groups.values():
+            packed = torch.stack([value.reshape(()) for _, value in group])
+            packed = self.trainer.strategy.reduce(packed, reduce_op="mean")
+            reduced.update({name: packed[index] for index, (name, _) in enumerate(group)})
+        return reduced
+
+    @staticmethod
+    def _diagnostic_tensors_to_cpu(values: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Copy diagnostic tensors once per device/dtype, preserving every bit and shape."""
+        groups: dict[tuple[torch.device, torch.dtype], list[tuple[str, torch.Tensor]]] = {}
+        result = {}
+        for name, value in values.items():
+            value = value.detach()
+            if value.device.type == "cpu":
+                result[name] = value
+            else:
+                groups.setdefault((value.device, value.dtype), []).append((name, value))
+        for group in groups.values():
+            packed = torch.cat([value.reshape(-1) for _, value in group]).cpu()
+            offset = 0
+            for name, value in group:
+                result[name] = packed.narrow(0, offset, value.numel()).reshape(value.shape)
+                offset += value.numel()
+        return result
+
+    def _timestep_diagnostic_tensors(self, diffusion_info: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        timesteps = diffusion_info.get("timesteps")
+        if not torch.is_tensor(timesteps):
+            return {}
+        values = {"timesteps": timesteps.detach().long()}
+        train_map = getattr(self.diffusion, "train_timestep_map", None)
+        if torch.is_tensor(train_map):
+            values["train_map"] = train_map.detach().long()
+        alpha = getattr(self.diffusion, "base_sqrt_alphas_cumprod", None)
+        noise = getattr(self.diffusion, "base_sqrt_one_minus_alphas_cumprod", None)
+        if torch.is_tensor(alpha) and torch.is_tensor(noise):
+            values["alpha"] = alpha.detach().float()
+            values["noise"] = noise.detach().float()
+        return values
+
     def _build_train_diagnostics(
         self,
         *,
@@ -644,73 +698,83 @@ class MotionGenerator(pl.LightningModule):
         target_features: torch.Tensor,
     ) -> dict[str, Any]:
         codec = self.representation.codec
-        root_rot_start, root_rot_end = codec.feature_slices["root_rot_local"]
-        pred_root_rot = pred_features[..., root_rot_start:root_rot_end].detach().float()
-        target_root_rot = target_features[..., root_rot_start:root_rot_end].detach().float()
+        start, end = codec.feature_slices["root_rot_local"]
+        pred_root_rot = pred_features[..., start:end].detach().float()
+        target_root_rot = target_features[..., start:end].detach().float()
         pred_root_quat = codec.rotation_features_to_quat(pred_root_rot).detach().float()
         target_root_quat = codec.rotation_features_to_quat(target_root_rot).detach().float()
-        valid = batch["mask"]["valid"].detach().bool()
-        caption = batch.get("caption", [])
-        meta = batch.get("meta", [])
-        diffusion_timesteps = self._diffusion_timestep_diagnostics(diffusion_info)
+        numeric = {
+            "pred_features_abs_max": pred_features.detach().float().abs().max(),
+            "target_features_abs_max": target_features.detach().float().abs().max(),
+        }
+        for prefix, tensor in (
+            ("pred_root_rot_feature", pred_root_rot), ("target_root_rot_feature", target_root_rot),
+            ("pred_root_quat", pred_root_quat), ("target_root_quat", target_root_quat),
+        ):
+            norm = torch.linalg.vector_norm(tensor, dim=-1)
+            numeric[f"{prefix}_norm_min"] = norm.min()
+            numeric[f"{prefix}_norm_max"] = norm.max()
+        motion_scalars = {name: value for name, value in motion_terms.items()
+                          if torch.is_tensor(value) and value.ndim == 0}
+        scalars = {"loss": total, "diffusion_loss": diffusion_loss}
+        scalars.update({f"motion/{name}": value for name, value in motion_scalars.items()})
+        scalars.update({f"numeric/{name}": value for name, value in numeric.items()})
+        if loss_term_grad_norms is not None:
+            scalars.update({f"grad/{name}": value for name, value in loss_term_grad_norms.items()})
+        tensors = {name: value.detach().float() for name, value in scalars.items()}
+        tensors.update({
+            "valid_frames": batch["mask"]["valid"].detach().bool().sum(),
+            "finite_pred_features": torch.isfinite(pred_features.detach()).all(),
+            "finite_target_features": torch.isfinite(target_features.detach()).all(),
+        })
+        timestep_tensors = self._timestep_diagnostic_tensors(diffusion_info)
+        tensors.update({f"timestep/{name}": value for name, value in timestep_tensors.items()})
+        host = self._diagnostic_tensors_to_cpu(tensors)
         return {
             "batch_idx": None if batch_idx is None else int(batch_idx),
             "batch_size": int(pred_features.shape[0]),
-            "loss": self._scalar(total),
-            "diffusion_loss": self._scalar(diffusion_loss),
-            "motion_terms": {
-                name: self._scalar(value)
-                for name, value in motion_terms.items()
-                if torch.is_tensor(value) and value.ndim == 0
+            "loss": self._scalar(host["loss"]),
+            "diffusion_loss": self._scalar(host["diffusion_loss"]),
+            "motion_terms": {name: self._scalar(host[f"motion/{name}"]) for name in motion_scalars},
+            "loss_term_grad_norms": None if loss_term_grad_norms is None else {
+                name: self._scalar(host[f"grad/{name}"]) for name in loss_term_grad_norms
             },
-            "loss_term_grad_norms": None
-            if loss_term_grad_norms is None
-            else {name: self._scalar(value) for name, value in loss_term_grad_norms.items()},
             "numeric": {
                 "rotation_representation": getattr(codec, "rotation_representation", "quat"),
-                "pred_features_abs_max": self._scalar(pred_features.detach().float().abs().max()),
-                "target_features_abs_max": self._scalar(target_features.detach().float().abs().max()),
-                "pred_root_rot_feature_norm_min": self._scalar(torch.linalg.vector_norm(pred_root_rot, dim=-1).min()),
-                "pred_root_rot_feature_norm_max": self._scalar(torch.linalg.vector_norm(pred_root_rot, dim=-1).max()),
-                "target_root_rot_feature_norm_min": self._scalar(torch.linalg.vector_norm(target_root_rot, dim=-1).min()),
-                "target_root_rot_feature_norm_max": self._scalar(torch.linalg.vector_norm(target_root_rot, dim=-1).max()),
-                "pred_root_quat_norm_min": self._scalar(torch.linalg.vector_norm(pred_root_quat, dim=-1).min()),
-                "pred_root_quat_norm_max": self._scalar(torch.linalg.vector_norm(pred_root_quat, dim=-1).max()),
-                "target_root_quat_norm_min": self._scalar(torch.linalg.vector_norm(target_root_quat, dim=-1).min()),
-                "target_root_quat_norm_max": self._scalar(torch.linalg.vector_norm(target_root_quat, dim=-1).max()),
-                "valid_frames": int(valid.sum().detach().cpu().item()),
-                "finite_pred_features": bool(torch.isfinite(pred_features.detach()).all().cpu().item()),
-                "finite_target_features": bool(torch.isfinite(target_features.detach()).all().cpu().item()),
+                **{name: self._scalar(host[f"numeric/{name}"]) for name in numeric},
+                "valid_frames": int(host["valid_frames"].item()),
+                "finite_pred_features": bool(host["finite_pred_features"].item()),
+                "finite_target_features": bool(host["finite_target_features"].item()),
             },
-            "diffusion_timesteps": diffusion_timesteps,
-            "batch_meta": self._batch_meta(meta, caption),
+            "diffusion_timesteps": self._diffusion_timestep_diagnostics(
+                diffusion_info, _cpu_tensors={name: host[f"timestep/{name}"] for name in timestep_tensors}
+            ),
+            "batch_meta": self._batch_meta(batch.get("meta", []), batch.get("caption", [])),
         }
 
-    def _diffusion_timestep_diagnostics(self, diffusion_info: dict[str, torch.Tensor]) -> dict[str, Any] | None:
-        timesteps = diffusion_info.get("timesteps")
-        if not torch.is_tensor(timesteps):
+    def _diffusion_timestep_diagnostics(
+        self, diffusion_info: dict[str, torch.Tensor], *, _cpu_tensors: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, Any] | None:
+        values = _cpu_tensors if _cpu_tensors is not None else self._diagnostic_tensors_to_cpu(
+            self._timestep_diagnostic_tensors(diffusion_info)
+        )
+        if "timesteps" not in values:
             return None
-        t = timesteps.detach().long().cpu()
+        t = values["timesteps"]
         if t.ndim == 0:
             t = t.reshape(1)
         flat = t.reshape(-1)
         out: dict[str, Any] = {
-            "timesteps": t.tolist(),
-            "min": int(flat.min().item()),
-            "max": int(flat.max().item()),
-            "mean": float(flat.float().mean().item()),
+            "timesteps": t.tolist(), "min": int(flat.min().item()),
+            "max": int(flat.max().item()), "mean": float(flat.float().mean().item()),
         }
-        train_map = getattr(self.diffusion, "train_timestep_map", None)
-        if torch.is_tensor(train_map):
-            train_map_cpu = train_map.detach().long().cpu()
-            index_by_timestep = {int(value.item()): idx for idx, value in enumerate(train_map_cpu)}
-            out["train_timestep_indices"] = [index_by_timestep.get(int(value.item())) for value in flat]
-        sqrt_alpha = getattr(self.diffusion, "base_sqrt_alphas_cumprod", None)
-        sqrt_one_minus = getattr(self.diffusion, "base_sqrt_one_minus_alphas_cumprod", None)
-        if torch.is_tensor(sqrt_alpha) and torch.is_tensor(sqrt_one_minus):
-            safe = flat.clamp(min=0, max=int(sqrt_alpha.numel()) - 1)
-            alpha_values = sqrt_alpha.detach().float().cpu().index_select(0, safe)
-            noise_values = sqrt_one_minus.detach().float().cpu().index_select(0, safe)
+        if "train_map" in values:
+            index_by_timestep = {value: idx for idx, value in enumerate(values["train_map"].tolist())}
+            out["train_timestep_indices"] = [index_by_timestep.get(value) for value in flat.tolist()]
+        if "alpha" in values:
+            safe = flat.clamp(min=0, max=int(values["alpha"].numel()) - 1)
+            alpha_values = values["alpha"].index_select(0, safe)
+            noise_values = values["noise"].index_select(0, safe)
             out["sqrt_alpha_cumprod"] = alpha_values.reshape(t.shape).tolist()
             out["sqrt_one_minus_alpha_cumprod"] = noise_values.reshape(t.shape).tolist()
             out["sqrt_alpha_cumprod_min"] = float(alpha_values.min().item())
