@@ -76,7 +76,7 @@ def main():
                 fps=50,
                 left_title="Raw reference",
                 right_title="Tracker execution",
-                overlay_lines=[args.text, "request25 / raw40-49 / switch50"],
+                overlay_lines=[args.text, "request0 / raw15-24 / switch25"],
             )
         (out / "report.json").write_text(
             json.dumps(

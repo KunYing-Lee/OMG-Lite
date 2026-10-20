@@ -7,8 +7,8 @@ import numpy as np
 FPS = 50
 HORIZON = 100
 HISTORY = 10
-PERIOD = 50
-REQUEST = 25
+PERIOD = 25
+REQUEST = 0
 PREVIEW = 10
 
 
@@ -45,13 +45,13 @@ class PlanTimeline:
 
     def request(self, frame):
         if frame % PERIOD != REQUEST or self.pending is not None:
-            raise ValueError("Replan must start at phase 25 with no pending request")
+            raise ValueError("Replan must start at phase 0 with no pending request")
         plan_id = frame // PERIOD + 1
         if plan_id != len(self.raw):
             raise ValueError("Nonsequential replan")
         switch = plan_id * PERIOD
-        history = self.raw[-1][40:50].copy()
-        np.testing.assert_array_equal(history, self.qpos[switch - 10 : switch])
+        history = self.raw[-1][PERIOD - HISTORY : PERIOD].copy()
+        np.testing.assert_array_equal(history, self.qpos[switch - HISTORY : switch])
         self.pending = Replan(plan_id, frame, switch, history)
         return self.pending
 

@@ -14,33 +14,33 @@ def qpos(n=100):
 
 def test_future_history_and_fixed_switch():
     t = PlanTimeline(qpos())
-    r = t.request(25)
-    np.testing.assert_array_equal(r.history, qpos()[40:50])
-    assert r.deadline_frame == 39
+    r = t.request(0)
+    np.testing.assert_array_equal(r.history, qpos()[15:25])
+    assert r.deadline_frame == 14
     new = qpos()
     new[:, 0] += 2
-    t.accept(r, new, current_frame=38)
-    np.testing.assert_array_equal(t.qpos[:50], qpos()[:50])
-    np.testing.assert_array_equal(t.qpos[50:], new)
-    np.testing.assert_array_equal(t.request(75).history, new[40:50])
+    t.accept(r, new, current_frame=13)
+    np.testing.assert_array_equal(t.qpos[:25], qpos()[:25])
+    np.testing.assert_array_equal(t.qpos[25:], new)
+    np.testing.assert_array_equal(t.request(25).history, new[15:25])
 
 
 def test_deadline_no_late_splice():
     t = PlanTimeline(qpos())
-    r = t.request(25)
+    r = t.request(0)
     with pytest.raises(TimeoutError):
-        t.check_frame(39)
+        t.check_frame(14)
     with pytest.raises(TimeoutError):
-        t.accept(r, qpos(), current_frame=40)
+        t.accept(r, qpos(), current_frame=15)
     assert len(t.raw) == 1
 
 
 def test_packet_features_equal_full_timeline_at_seam():
     t = PlanTimeline(qpos())
-    r = t.request(25)
+    r = t.request(0)
     new = qpos()
     new[:, 0] += 1
-    t.accept(r, new, current_frame=25)
+    t.accept(r, new, current_frame=0)
     order = list(range(29))
     full = precompute_reference_features(t.qpos, fps=50, onnx_to_g1=order)
     receiver = ReferenceReceiver(order)
@@ -63,13 +63,13 @@ def test_packet_features_equal_full_timeline_at_seam():
 def test_future_derivative_reaches_switch_one_frame_early():
     old = qpos()
     new = old.copy()
-    new[50, 0] += 1
+    new[25, 0] += 1
     a = precompute_reference_features(old, fps=50, onnx_to_g1=list(range(29)))
     b = precompute_reference_features(new, fps=50, onnx_to_g1=list(range(29)))
-    assert not np.array_equal(a["ref_base_linvel"][49], b["ref_base_linvel"][49])
+    assert not np.array_equal(a["ref_base_linvel"][24], b["ref_base_linvel"][24])
 
 
-def test_sync_and_deployment_have_identical_preview_for_30_50_70ms():
+def test_sync_and_deployment_have_identical_preview_for_simulated_latencies():
     from concurrent.futures import Future
 
     from omg.pipeline.execution import run
@@ -95,7 +95,7 @@ def test_sync_and_deployment_have_identical_preview_for_30_50_70ms():
     t = Tracker()
     run(p, t, qpos(10), "walk", frames=150)
     # Compare effective observation features, not unused distant raw suffixes.
-    for latency in [0.03, 0.05, 0.07]:
+    for latency in [0.03, 0.05, 0.07, 0.21]:
         now = [0.0]
         b = DeploymentBridge(p, "walk", clock=lambda now=now: now[0])
         b.activate(qpos(10))

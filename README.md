@@ -7,11 +7,11 @@ are also supported. See [pose representation](docs/pose38.md).
 ## One pipeline
 
 - Generate 100 frames (2 seconds), conditioned on 10 history frames.
-- At local frame 25, request the next plan using **raw plan frames 40–49**.
-- Execute the old plan through frame 49; new plan frame 0 starts at frame 50.
+- At local frame 0, request the next plan using **raw plan frames 15–24**.
+- Execute the old plan through frame 24; new plan frame 0 starts at frame 25 (every 0.5 seconds).
 - Publish the new future reference as soon as it is ready. HoloMotion previews
   10 frames and its velocity features read one additional sample, so the plan
-  must arrive **before the frame-39 control tick** (280ms after request).
+  must arrive **before the frame-14 control tick** (280ms after request).
 - `sync` pauses simulation during inference. `async` continues tracking with
   wall-clock deadlines. They share the same raw-plan timeline.
 - No interpolation, alignment, smoothing, skipped generated frames, or late
@@ -82,3 +82,5 @@ window indices. See [benchmark](docs/benchmark.md) and
 repository, not in this runtime.
 
 [MIT License](LICENSE)
+
+Half-second schedule evaluation: [validation report](docs/half_second_validation.md).

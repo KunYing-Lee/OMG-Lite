@@ -1,6 +1,6 @@
 """Request/response adapter for the same native timeline used by simulation."""
 
-from omg.pipeline.schedule import motion
+from omg.pipeline.schedule import PERIOD, REQUEST, motion
 from omg.realtime.protocol import MotionPlanChunk, RobotStateRequest
 
 
@@ -17,7 +17,7 @@ class PlannerService:
         if plan_id == 0:
             if switch != 0 or request.tracker_frame != 0:
                 raise ValueError("Invalid initialization")
-        elif switch != plan_id * 50 or request.tracker_frame != switch - 25:
+        elif switch != plan_id * PERIOD or request.tracker_frame != switch - PERIOD + REQUEST:
             raise ValueError("Invalid future-history schedule")
         result = self.planner.plan(history, request.prompt, plan_id)
         return MotionPlanChunk(
@@ -44,11 +44,11 @@ class RemotePlanner:
     def plan(self, history, text, plan_id):
         from omg.realtime.transport import ZmqPlanClient
 
-        switch = plan_id * 50
+        switch = plan_id * PERIOD
         request = RobotStateRequest(
             qpos_36_history=motion(history, 10),
             history_fps=50,
-            tracker_frame=0 if plan_id == 0 else switch - 25,
+            tracker_frame=0 if plan_id == 0 else switch - PERIOD + REQUEST,
             prompt=text,
             metadata={"plan_id": plan_id, "switch_frame": switch},
         )

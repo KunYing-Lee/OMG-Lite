@@ -1,10 +1,10 @@
 # Native 50Hz G1 deployment
 
 This path uses the same `PlanTimeline` as simulation. Startup history contains
-10 measured 50Hz qpos36 samples. Each subsequent request uses raw plan 40–49,
-starts at phase25, and replaces the reference suffix at phase50. The reply
-must be available before phase39: ten preview frames plus one derivative sample.
-The complete transport/inference budget is 280ms, not 500ms.
+10 measured 50Hz qpos36 samples. Each subsequent request uses raw plan 15–24,
+starts at phase0, and replaces the reference suffix at phase25. The reply
+must be available before phase14: ten preview frames plus one derivative sample.
+The complete transport/inference budget is 280ms; switching happens every 500ms.
 
 ## GPU planner
 

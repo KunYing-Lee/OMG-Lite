@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-from omg.pipeline.schedule import PlanTimeline
+from omg.pipeline.schedule import PERIOD, REQUEST, PlanTimeline
 from omg.pipeline.tracker import Tracker
 from omg.realtime.policy import PreviewPolicy
 from omg.realtime.reference_stream import ReferenceReceiver, encode_window
@@ -33,7 +33,7 @@ session = ort.InferenceSession(
 )
 results = {}
 for name in ["walk", "squat", "hands"]:
-    plans = [np.load(root / name / f"plan_{i:03d}.npz")["qpos"] for i in range(4)]
+    plans = [np.load(root / name / f"plan_{i:03d}.npz")["qpos"] for i in range(7)]
     history = np.load(root / name / "rollout.npz")["initial_history"]
     states = []
     for latency in [0, 0.03, 0.05, 0.07]:
@@ -61,7 +61,7 @@ for name in ["walk", "squat", "hands"]:
                 tracker.activate(timeline.qpos)
                 ready = None
             timeline.check_frame(frame)
-            if frame % 50 == 25:
+            if frame % PERIOD == REQUEST:
                 r = timeline.request(frame)
                 if latency == 0:
                     timeline.accept(r, plans[r.plan_id], current_frame=frame)
@@ -69,7 +69,7 @@ for name in ["walk", "squat", "hands"]:
                 else:
                     ready = frame / 50 + latency
             if latency == 0:
-                state = tracker.step(frame, frame // 50)
+                state = tracker.step(frame, frame // PERIOD)
                 action = runner.last_action
             else:
                 features, cursor = receiver.consume(

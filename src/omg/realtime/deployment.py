@@ -8,7 +8,7 @@ this adapter never holds, extrapolates, skips, or silently changes the schedule.
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from omg.pipeline.schedule import PlanTimeline, motion
+from omg.pipeline.schedule import PERIOD, REQUEST, PlanTimeline, motion
 
 
 class DeploymentBridge:
@@ -48,7 +48,7 @@ class DeploymentBridge:
             self.timeline.accept(request, result["qpos"], current_frame=frame)
             self.future = None
         self.timeline.check_frame(frame)
-        if frame % 50 == 25:
+        if frame % PERIOD == REQUEST:
             request = self.timeline.request(frame)
             self.future = self.pool.submit(self._generate, request)
         self.frame += 1
