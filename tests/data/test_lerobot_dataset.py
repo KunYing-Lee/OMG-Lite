@@ -159,7 +159,8 @@ def _write_nonzero_offset_fixture(root: Path, *, split: str) -> str:
     return hashlib.sha256(manifest_path.read_bytes()).hexdigest()
 
 
-def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("include_body_positions", [True, False])
+def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_body_positions: bool) -> None:
     dataset_root = tmp_path / "lerobot"
     manifest_sha256 = _write_lerobot_fixture(dataset_root)
     dataset = LeRobotG1MotionDataset(
@@ -173,6 +174,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
         num_prev_states=2,
         train_window_policy="exhaustive",
         rotation_representation="rot6d",
+        include_body_positions=include_body_positions,
         use_audio=True,
         use_human_motion=True,
     )
@@ -196,7 +198,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
     assert fk_calls == sample_fk_calls + 1
     assert sample["caption"] == "walk forward; style: steady"
     assert sample["qpos_36"].shape == (60, 36)
-    assert sample["motion_features"].shape[-1] == 125
+    assert sample["motion_features"].shape[-1] == (125 if include_body_positions else 38)
     assert sample["mask"]["valid"].sum().item() == 5
     assert sample["qpos_36"][0, 0].item() == 2.0
     assert sample["mask"]["has_audio"].sum().item() == 5
@@ -214,6 +216,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
     assert cache_summary["windows"] == 1
     cached_sample = EpisodeCachedG1MotionDataset(
         root=cache_root,
+        include_body_positions=include_body_positions,
         split="train",
         source_repo_id=TEST_REPO_ID,
         source_revision=TEST_REVISION,

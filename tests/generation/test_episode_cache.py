@@ -90,6 +90,15 @@ def test_episode_cache_maps_exact_windows_and_spans(tmp_path) -> None:
     assert dataset[3]["caption"] == "stand"
     assert dataset[3]["motion_features"].shape == (3, 125)
     assert dataset[3]["mask"]["valid"].dtype == torch.bool
+    compact = EpisodeCachedG1MotionDataset(
+        root=tmp_path / "cache", split="train", source_repo_id=SOURCE_REPO_ID,
+        source_revision=SOURCE_REVISION, include_body_positions=False,
+    )
+    for index in range(len(dataset)):
+        for key in ("motion_features", "history_features", "prev_state_features"):
+            torch.testing.assert_close(compact[index][key], dataset[index][key][..., :38])
+        torch.testing.assert_close(compact[index]["qpos_36"], dataset[index]["qpos_36"])
+
 
 
 def test_episode_cache_writer_publishes_atomically(tmp_path) -> None:

@@ -33,6 +33,7 @@ class EpisodeCachedG1MotionDataset(Dataset):
         shard_cache_size: int = 4,
         episode_cache_size: int = 64,
         kinematics_path: str = "assets/robots/g1/g1_kinematics.json",
+        include_body_positions: bool = True,
     ) -> None:
         super().__init__()
         self.root = Path(root)
@@ -67,6 +68,7 @@ class EpisodeCachedG1MotionDataset(Dataset):
         self.kinematics = G1Kinematics(kinematics_path=kinematics_path)
         self.codec = G1MotionFeatureCodec(
             self.kinematics,
+            include_body_positions=include_body_positions,
             num_prev_states=self.num_prev_states,
             canonical_frame_idx=int(summary["canonical_frame_idx"]),
             rotation_representation=str(summary["rotation_representation"]),

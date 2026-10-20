@@ -9,7 +9,7 @@ defaults:
   - override /logger: csv
   - _self_
 
-exp_name: 50m_50hz_text_hist10_b6144_3epochs_s1234
+exp_name: 50m_${representation.feat_dim}d_50hz_text_hist10_b6144_3epochs_t5cache_s1234
 seed: 1234
 ckpt_path: null
 init_weights_only_ckpt: null
@@ -17,8 +17,12 @@ representation:
   sequence_length: 100
   num_prev_states: 10
   canonical_frame_idx: 9
-  stats_path: ${oc.env:OMG50_STATS_PATH,assets/stats/g1_125d_50hz_hist10_stats.json}
+  stats_path: ${oc.env:OMG50_STATS_PATH,assets/stats/g1_${representation.feat_dim}d_50hz_hist10_stats.json}
 model:
+  text_encoder:
+    frozen_eval: true
+    cache_max_entries: 4096
+    cache_device: encoder
   diffusion_target: future
   history_pos_encoding: sinusoidal
   use_audio: false

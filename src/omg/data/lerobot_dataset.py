@@ -136,6 +136,7 @@ class LeRobotG1MotionDataset(Dataset):
         use_human_motion: bool = False,
         human_motion_dim: int = 66,
         rotation_representation: str = "rot6d",
+        include_body_positions: bool = True,
         train_window_policy: str | None = None,
         train_window_stride: int | None = None,
         exhaustive_train_slicing: bool = True,
@@ -243,6 +244,7 @@ class LeRobotG1MotionDataset(Dataset):
         self.kinematics = G1Kinematics(kinematics_path=kinematics_path)
         self.codec = G1MotionFeatureCodec(
             self.kinematics,
+            include_body_positions=include_body_positions,
             num_prev_states=self.num_prev_states,
             canonical_frame_idx=canonical_frame_idx,
             rotation_representation=rotation_representation,

@@ -36,6 +36,7 @@ class G1MotionFeatureCodec:
         canonical_frame_idx: int | None = None,
         rotation_representation: str = "quat",
         rot6d_gradient_mode: str = "vanilla",
+        include_body_positions: bool = True,
     ):
         self.kinematics = kinematics
         self.num_prev_states = int(num_prev_states)
@@ -50,7 +51,10 @@ class G1MotionFeatureCodec:
         self.rotation_representation = self._normalize_rotation_representation(rotation_representation)
         self.rot6d_gradient_mode = self._normalize_rot6d_gradient_mode(rot6d_gradient_mode)
         self.root_rot_dim = {"quat": 4, "rot6d": 6}[self.rotation_representation]
-        self.feature_dim = 3 + self.root_rot_dim + self.kinematics.num_joints + self.num_body_links * 3
+        self.include_body_positions = bool(include_body_positions)
+        self.feature_dim = 3 + self.root_rot_dim + self.kinematics.num_joints
+        if self.include_body_positions:
+            self.feature_dim += self.num_body_links * 3
         joint_start = 3 + self.root_rot_dim
         self.feature_slices = {
             "root_pos_local": (0, 3),
@@ -62,6 +66,9 @@ class G1MotionFeatureCodec:
                 self.feature_dim,
             ),
         }
+
+        if not self.include_body_positions:
+            del self.feature_slices["body_link_pos_local"]
 
     @staticmethod
     def _normalize_rotation_representation(value: str) -> str:
@@ -145,29 +152,33 @@ class G1MotionFeatureCodec:
         raise AssertionError(f"Unhandled rotation_representation={self.rotation_representation}")
 
     def assemble_features(self, components: MotionComponents) -> torch.Tensor:
-        body_link_flat = components.body_link_pos_local.reshape(*components.body_link_pos_local.shape[:-2], -1)
-        return torch.cat(
-            [
-                components.root_pos_local,
-                self.rotation_quat_to_features(components.root_rot_local_quat),
-                components.joint_dof,
-                body_link_flat,
-            ],
-            dim=-1,
-        )
+        parts = [
+            components.root_pos_local,
+            self.rotation_quat_to_features(components.root_rot_local_quat),
+            components.joint_dof,
+        ]
+        if self.include_body_positions:
+            parts.append(components.body_link_pos_local.flatten(-2))
+        return torch.cat(parts, dim=-1)
 
     def split_features(self, features: torch.Tensor) -> MotionComponents:
+        if features.shape[-1] != self.feature_dim:
+            raise ValueError(f"Expected {self.feature_dim} motion features, got {features.shape[-1]}")
         s = self.feature_slices
-        body_link_flat = features[..., s["body_link_pos_local"][0] : s["body_link_pos_local"][1]]
-        body_link_pos_local = body_link_flat.view(*features.shape[:-1], self.num_body_links, 3)
+        root_pos = features[..., :3]
         root_rot_features = features[..., s["root_rot_local"][0] : s["root_rot_local"][1]]
-        root_rot_local_quat = self.rotation_features_to_quat(root_rot_features)
-        return MotionComponents(
-            root_pos_local=features[..., s["root_pos_local"][0] : s["root_pos_local"][1]],
-            root_rot_local_quat=root_rot_local_quat,
-            joint_dof=features[..., s["joint_dof"][0] : s["joint_dof"][1]],
-            body_link_pos_local=body_link_pos_local,
-        )
+        root_quat = self.rotation_features_to_quat(root_rot_features)
+        joint_dof = features[..., s["joint_dof"][0] : s["joint_dof"][1]]
+        if self.include_body_positions:
+            body_link_pos = features[..., s["body_link_pos_local"][0]:].reshape(
+                *features.shape[:-1], self.num_body_links, 3
+            )
+        else:
+            # FK is equivariant under the canonical frame's rigid transform.
+            # Evaluate directly in that frame; all gradients flow to pose variables.
+            local_qpos = torch.cat([root_pos, root_quat, joint_dof], dim=-1)
+            body_link_pos = self.kinematics.forward_body_positions(local_qpos)[..., 1:, :]
+        return MotionComponents(root_pos, root_quat, joint_dof, body_link_pos)
 
     def _split_qpos_36(self, qpos_36: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if qpos_36.shape[-1] != 36:

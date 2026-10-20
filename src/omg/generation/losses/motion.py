@@ -217,10 +217,11 @@ class MotionLoss(nn.Module):
         pred_fk_local = None
         if needs_fk:
             pred_qpos, pred_fk, pred_fk_local = self._decode_fk(pred, batch, representation, valid)
-            terms["body_pos_consistency_loss"] = _masked_element_mean(
-                (pred.body_link_pos_local - pred_fk_local.body_link_pos_local).pow(2),
-                valid[:, :, None],
-            )
+            if representation.codec.include_body_positions:
+                terms["body_pos_consistency_loss"] = _masked_element_mean(
+                    (pred.body_link_pos_local - pred_fk_local.body_link_pos_local).pow(2),
+                    valid[:, :, None],
+                )
             terms["fk_body_pos_loss"] = _masked_element_mean(
                 (pred_fk_local.body_link_pos_local - gt.body_link_pos_local).pow(2),
                 valid[:, :, None],

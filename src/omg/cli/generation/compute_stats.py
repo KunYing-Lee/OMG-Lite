@@ -27,6 +27,8 @@ def _resolve_dataset_cfg(cfg: dict[str, Any], representation: dict[str, Any], pa
     target = str(resolved.get("_target_", ""))
     if target == "omg.data.lerobot_dataset.LeRobotG1MotionDataset":
         resolved.setdefault("rotation_representation", representation.get("rotation_representation", "quat"))
+    if target in {"omg.data.lerobot_dataset.LeRobotG1MotionDataset", "omg.data.episode_cache.EpisodeCachedG1MotionDataset"}:
+        resolved.setdefault("include_body_positions", representation.get("include_body_positions", True))
     return resolved
 
 
@@ -133,7 +135,8 @@ def compute_stats(args: argparse.Namespace) -> dict[str, Any]:
         "6d": 6,
     }[rot_key]
     return {
-        "feature": f"root_pos_local+root_rot_local_{rotation_representation}_{root_rot_dim}+joint_dof_29+body_link_pos_local_29x3",
+        "feature": f"root_pos_local+root_rot_local_{rotation_representation}_{root_rot_dim}+joint_dof_29"
+        + ("+body_link_pos_local_29x3" if repr_cfg.get("include_body_positions", True) else ""),
         "rotation_representation": rotation_representation,
         "split": args.split,
         "count": count,
@@ -151,9 +154,9 @@ def compute_stats(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-config", type=Path, default=Path("configs/generation/data/omg_data_lerobot.yaml"))
-    parser.add_argument("--representation-config", type=Path, default=Path("configs/generation/representation/125d.yaml"))
+    parser.add_argument("--representation-config", type=Path, default=Path("configs/generation/representation/38d.yaml"))
     parser.add_argument("--paths-config", type=Path, default=Path("configs/generation/paths/default.yaml"))
-    parser.add_argument("--output", type=Path, default=Path("assets/stats/g1_125d_stats.json"))
+    parser.add_argument("--output", type=Path, default=Path("assets/stats/g1_38d_stats.json"))
     parser.add_argument("--split", default="train")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=256)
