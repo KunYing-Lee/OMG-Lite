@@ -1,5 +1,7 @@
 """Request/response adapter for the same native timeline used by simulation."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 from omg.pipeline.schedule import motion
 from omg.realtime.protocol import MotionPlanChunk, RobotStateRequest
 
@@ -33,15 +35,17 @@ class PlannerService:
 
 
 class RemotePlanner:
-    """Synchronous callable; the async executor calls this on its worker thread.
-
-    ZMQ sockets are created in the calling thread, never shared across threads.
-    """
+    """Persistent connection owned exclusively by a dedicated I/O thread."""
 
     def __init__(self, connect):
         self.connect = connect
+        self.pool = ThreadPoolExecutor(max_workers=1)
+        self.client = None
 
     def plan(self, history, text, plan_id):
+        return self.pool.submit(self._plan, history, text, plan_id).result()
+
+    def _plan(self, history, text, plan_id):
         from omg.realtime.transport import ZmqPlanClient
 
         switch = plan_id * 50
@@ -52,10 +56,11 @@ class RemotePlanner:
             prompt=text,
             metadata={"plan_id": plan_id, "switch_frame": switch},
         )
-        with ZmqPlanClient(self.connect) as client:
-            response = client.request_plan(
-                request, timeout_ms=30000 if plan_id == 0 else 280
-            )
+        if self.client is None:
+            self.client = ZmqPlanClient(self.connect)
+        response = self.client.request_plan(
+            request, timeout_ms=30000 if plan_id == 0 else 280
+        )
         if (
             response.fps,
             response.plan_id,
@@ -67,3 +72,12 @@ class RemotePlanner:
             "qpos": motion(response.qpos_36, 100),
             "latency_s": response.planning_latency_seconds,
         }
+
+    def _close(self):
+        if self.client is not None:
+            self.client.close()
+            self.client = None
+
+    def close(self):
+        self.pool.submit(self._close).result()
+        self.pool.shutdown(wait=True, cancel_futures=True)

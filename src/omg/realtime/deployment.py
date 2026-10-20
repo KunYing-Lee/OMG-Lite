@@ -56,3 +56,5 @@ class DeploymentBridge:
 
     def close(self):
         self.pool.shutdown(wait=True, cancel_futures=True)
+        if hasattr(self.planner, "close"):
+            self.planner.close()

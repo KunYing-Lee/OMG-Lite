@@ -67,3 +67,8 @@ adapter with the same MuJoCo dynamics as the normal tracker. Actual network
 latency, Orin throughput, controller integration and physical acceptance still
 require deployment-side verification. Do not interpret simulated latency as
 measured inference speed.
+
+The concrete ROS/Orin adapters and pinned external-controller stop patch are
+in [`deployment/README.md`](../deployment/README.md). That document separates
+completed network/isolated checks from the still-pending shadow and physical
+acceptance gates. The native policy adapter is not yet hardware-qualified.
