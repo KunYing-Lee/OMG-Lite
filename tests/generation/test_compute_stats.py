@@ -34,11 +34,11 @@ def test_compute_stats_allows_an_empty_distributed_partition(monkeypatch) -> Non
     configs = {
         "data.yaml": {"dataset_opts": {"train": {"fake": {"_target_": "fake.Dataset"}}}},
         "representation.yaml": {
-            "feat_dim": 125,
+            "feat_dim": 38,
             "rotation_representation": "rot6d",
             "num_prev_states": 10,
             "canonical_frame_idx": 9,
-            "sequence_length": 60,
+            "sequence_length": 100,
         },
         "paths.yaml": {},
     }
@@ -50,9 +50,9 @@ def test_compute_stats_allows_an_empty_distributed_partition(monkeypatch) -> Non
         aggregate.zero_()
         aggregate[0] = 2
         aggregate[1] = 2
-        aggregate[2 : 2 + 125] = 2
-        aggregate[2 + 125 : 2 + 250] = 2
-        aggregate[2 + 250 + 3] = 2
+        aggregate[2 : 2 + 38] = 2
+        aggregate[2 + 38 : 2 + 76] = 2
+        aggregate[2 + 76 + 3] = 2
 
     monkeypatch.setattr(module.dist, "all_reduce", contribute_other_rank)
     args = argparse.Namespace(
@@ -69,6 +69,7 @@ def test_compute_stats_allows_an_empty_distributed_partition(monkeypatch) -> Non
         std_min=1e-6,
     )
     stats = module.compute_stats(args)
+    assert stats["fps"] == 50
     assert stats["count"] == 2
-    assert stats["mean"] == [1.0] * 125
+    assert stats["mean"] == [1.0] * 38
     assert stats["default_root_quat"] == [1.0, 0.0, 0.0, 0.0]

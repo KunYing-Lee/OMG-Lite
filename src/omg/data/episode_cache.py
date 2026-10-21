@@ -33,7 +33,7 @@ class EpisodeCachedG1MotionDataset(Dataset):
         shard_cache_size: int = 4,
         episode_cache_size: int = 64,
         kinematics_path: str = "assets/robots/g1/g1_kinematics.json",
-        include_body_positions: bool = True,
+        include_body_positions: bool = False,
     ) -> None:
         super().__init__()
         self.root = Path(root)
@@ -58,6 +58,8 @@ class EpisodeCachedG1MotionDataset(Dataset):
         self.num_prev_states = int(summary["num_prev_states"])
         self.train_window_stride = int(summary["train_window_stride"])
         self.default_fps = float(summary["fps"])
+        if self.default_fps != 50.0:
+            raise ValueError("Episode cache must contain native 50Hz motion")
         self.num_shards = int(summary["shards"])
         self.use_audio = bool(summary.get("use_audio", False))
         self.audio_dim = int(summary.get("audio_dim", 35))

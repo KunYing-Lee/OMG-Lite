@@ -136,7 +136,6 @@
   "windows": 101240125,
   "include_body_positions": false,
   "projection": {
-    "source": "assets/stats/g1_125d_50hz_hist10_stats.json",
     "source_sha256": "e54506da9f218ea8f259fd18f7f8de3d9c577a53e34d95cb53e2a7d972846c8f",
     "feature_indices": [
       0,

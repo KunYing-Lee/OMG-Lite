@@ -224,7 +224,7 @@ def main() -> None:
     parser.add_argument(
         "--representation-config",
         type=Path,
-        default=Path("configs/generation/representation/125d.yaml"),
+        default=Path("configs/generation/representation/38d.yaml"),
     )
     parser.add_argument("--paths-config", type=Path, default=Path("configs/generation/paths/default.yaml"))
     parser.add_argument("--output-root", type=Path, required=True)

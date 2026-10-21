@@ -61,7 +61,7 @@ def verify_schema(
 
     Raises:
         ArtifactError: if a required key is missing, dtypes / shapes are
-            inconsistent, or fps contains non-positive entries.
+            inconsistent, or fps differs from native 50Hz.
     """
 
     missing = set(required_keys) - set(arrays.keys())
@@ -81,9 +81,9 @@ def verify_schema(
         raise ArtifactError(
             f"[{label}] fps must have shape ({batch_size},); got {fps.shape}"
         )
-    if not np.all(np.asarray(fps, dtype=np.float64) > 0.0):
+    if not np.all(np.asarray(fps, dtype=np.float64) == 50.0):
         raise ArtifactError(
-            f"[{label}] fps must be strictly positive; got min={float(fps.min())}"
+            f"[{label}] fps must be native 50Hz; got min={float(fps.min())}"
         )
 
     captions = np.asarray(arrays["captions"])

@@ -32,7 +32,7 @@ def test_pose38_fk_matches_world_fk_after_canonical_transform():
     torch.testing.assert_close(decoded.body_link_pos_local, original.body_link_pos_local, atol=2e-6, rtol=2e-6)
     torch.testing.assert_close(codec.decode_to_world_qpos36(decoded, pos, quat), qpos, atol=2e-6, rtol=2e-6)
     with pytest.raises(ValueError, match="Expected 38"):
-        codec.split_features(torch.zeros(2, 3, 125))
+        codec.split_features(torch.zeros(2, 3, 39))
 
 
 def test_pose38_fk_gradient_matches_finite_differences():
@@ -107,16 +107,22 @@ def test_diffusion_only_step_does_not_decode_fk(monkeypatch):
     assert any(p.grad is not None and p.grad.norm() > 0 for p in generator.history_projector.parameters())
 
 
-def test_stats_projection_preserves_matching_normalization(tmp_path):
+
+def test_only_pose38_codec_options_are_accepted():
+    kin = G1Kinematics()
+    assert G1MotionFeatureCodec(kin).feature_dim == 38
+    with pytest.raises(ValueError, match="38D"):
+        G1MotionFeatureCodec(kin, include_body_positions=True)
+    with pytest.raises(ValueError, match="rot6d"):
+        G1MotionFeatureCodec(kin, rotation_representation="quat")
+
+
+def test_statistics_reject_other_frame_rates(tmp_path):
     import json
-    from omg.cli.generation.project_pose_stats import project_pose_stats
-    source = Path("assets/stats/g1_125d_50hz_hist10_stats.json")
-    output = tmp_path / "stats38.json"
-    project_pose_stats(source, output)
-    old, new = json.loads(source.read_text()), json.loads(output.read_text())
-    assert new["mean"] == old["mean"][:38]
-    assert new["std"] == old["std"][:38]
-    assert new["sequence_length"] == old["sequence_length"]
-    assert new["count"] == old["count"]
-    with pytest.raises(FileExistsError):
-        project_pose_stats(source, output)
+    from omg.motion.representation import G1MotionRepresentation
+    stats = json.loads(Path("assets/stats/g1_38d_50hz_hist10_stats.json").read_text())
+    stats["fps"] = 25
+    path = tmp_path / "wrong_rate.json"
+    path.write_text(json.dumps(stats))
+    with pytest.raises(ValueError, match="50Hz"):
+        G1MotionRepresentation(stats_path=path)

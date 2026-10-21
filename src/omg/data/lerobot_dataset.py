@@ -136,7 +136,7 @@ class LeRobotG1MotionDataset(Dataset):
         use_human_motion: bool = False,
         human_motion_dim: int = 66,
         rotation_representation: str = "rot6d",
-        include_body_positions: bool = True,
+        include_body_positions: bool = False,
         train_window_policy: str | None = None,
         train_window_stride: int | None = None,
         exhaustive_train_slicing: bool = True,

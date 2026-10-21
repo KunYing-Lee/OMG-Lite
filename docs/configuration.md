@@ -2,7 +2,7 @@
 
 `exp=base` is native50Hz text-only38D50M, prediction100, history10, sinusoidal
 history encoding and self/cross QK norm. Size presets inherit this protocol.
-Use `representation=125d` only with matching125D statistics/checkpoints.
+The only representation preset is `38d`.
 
 `data=omg_data_50hz_cached` is the training default;
 `data=omg_data_50hz` reads the pinned native source directly.

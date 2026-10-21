@@ -1,15 +1,22 @@
-# Artifacts
+# Released inference artifacts
 
-The supported public125D50Hz checkpoint is
-[step49431](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/updated/50Hz/sstep=049431.ckpt),
-SHA256 `b66c884c991e53129a8a9d03310a47194a77604372a3b9c62f6814ab63d9100e`.
-Use its resolved training configuration and native125D50Hz statistics.
-The default38D training architecture requires its own checkpoint.
+Use the [38D / 50Hz bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D).
+The best-validation checkpoint is `sstep=075500.ckpt`, SHA256
+`8bdd19cc6a47131dacb8f29a2a440c6a3a405dfcd335ecfffc3054828bd59fe7`.
 
-Download T5-base locally and set `OMG_MODELS_ROOT`. HoloMotion artifacts must
-be acquired separately from their official distribution; validation uses
-v1.4.1 `model_16200_dynamic_batch.onnx` with context1 and preview10.
+Download the whole directory, including `config.yaml`, normalization stats,
+`g1_kinematics.json`, `g1_29dof.urdf`, `seed_stand.npz`, and `infer.py`.
+The script resolves paths relative to the bundle, verifies hashes and strictly
+loads the checkpoint. T5-base is the generation text encoder; install the
+training extras and provide a local T5-base directory for offline operation.
+Follow the bundle README or the repository quickstart.
 
-The original OMG release evaluator remains a separate benchmark artifact.
-Do not compare different sampling rates without an explicitly defined evaluator
-protocol; runtime frame-rate conversion is intentionally absent in Lite.
+The bundle's validation record reports a 100-frame native50Hz generation from
+standing history, with exact output parity against the original training config.
+It is not tracker or physical-robot acceptance. The released checkpoint was
+trained with diffusion loss only. Optional FK loss remains available for new runs.
+
+For the simulation CLI, export `OMG38_ARTIFACT_DIR` as the absolute bundle
+folder and optionally `OMG38_T5` as a local T5-base directory. Pass its
+`config.yaml`, checkpoint and seed motion to the pipeline. HoloMotion v1.4.1
+`model_16200_dynamic_batch.onnx` and tracking dependencies are obtained separately.

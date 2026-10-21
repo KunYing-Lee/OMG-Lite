@@ -26,9 +26,9 @@ def _resolve_dataset_cfg(cfg: dict[str, Any], representation: dict[str, Any], pa
     resolved = OmegaConf.to_container(root.dataset, resolve=True)
     target = str(resolved.get("_target_", ""))
     if target == "omg.data.lerobot_dataset.LeRobotG1MotionDataset":
-        resolved.setdefault("rotation_representation", representation.get("rotation_representation", "quat"))
+        resolved.setdefault("rotation_representation", representation.get("rotation_representation", "rot6d"))
     if target in {"omg.data.lerobot_dataset.LeRobotG1MotionDataset", "omg.data.episode_cache.EpisodeCachedG1MotionDataset"}:
-        resolved.setdefault("include_body_positions", representation.get("include_body_positions", True))
+        resolved.setdefault("include_body_positions", representation.get("include_body_positions", False))
     return resolved
 
 
@@ -124,19 +124,13 @@ def compute_stats(args: argparse.Namespace) -> dict[str, Any]:
     std = (m2 / max(count - 1, 1)).sqrt().clamp_min(float(args.std_min))
     default_qpos = (qpos_sum / qpos_count).float()
     default_root_quat = torch.nn.functional.normalize(default_qpos[3:7], dim=0)
-    rotation_representation = str(repr_cfg.get("rotation_representation", "quat"))
+    rotation_representation = str(repr_cfg.get("rotation_representation", "rot6d"))
     rot_key = rotation_representation.strip().lower().replace("-", "_")
-    root_rot_dim = {
-        "quat": 4,
-        "quaternion": 4,
-        "quat4": 4,
-        "rot6d": 6,
-        "rotation_6d": 6,
-        "6d": 6,
-    }[rot_key]
+    if rot_key != "rot6d" or repr_cfg.get("include_body_positions", False):
+        raise ValueError("Statistics require 38D rot6d pose features")
     return {
-        "feature": f"root_pos_local+root_rot_local_{rotation_representation}_{root_rot_dim}+joint_dof_29"
-        + ("+body_link_pos_local_29x3" if repr_cfg.get("include_body_positions", True) else ""),
+        "fps": 50,
+        "feature": "root_pos_local+root_rot_local_rot6d_6+joint_dof_29",
         "rotation_representation": rotation_representation,
         "split": args.split,
         "count": count,

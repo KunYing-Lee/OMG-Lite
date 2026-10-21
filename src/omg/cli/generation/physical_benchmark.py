@@ -12,7 +12,7 @@ from omg.generation.metrics import physical_qpos_metrics
 from omg.motion.representation import G1MotionRepresentation
 
 DEFAULT_QPOS_KEYS = ("executed_qpos_36", "qpos_36", "qpos", "reference_qpos_36")
-DEFAULT_STATS_PATH = "assets/stats/g1_125d_50hz_hist10_stats.json"
+DEFAULT_STATS_PATH = "assets/stats/g1_38d_50hz_hist10_stats.json"
 DEFAULT_KINEMATICS_PATH = "assets/robots/g1/g1_kinematics.json"
 
 
@@ -76,6 +76,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if fps is None:
         raise ValueError("fps is required for physical metrics; pass --fps or provide an 'fps' key in the .npz file")
 
+    if fps != 50.0:
+        raise ValueError("Physical benchmark requires native 50Hz motion")
+
     batch_size, num_frames = _qpos_shape(qpos_np)
     device = _device(args.device)
     qpos = torch.from_numpy(qpos_np).to(device=device, dtype=torch.float32)
@@ -84,7 +87,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         kinematics_path=args.kinematics_path,
         num_prev_states=10,
         canonical_frame_idx=9,
-        feat_dim=125,
+        feat_dim=38,
         sequence_length=100,
     ).to(device).eval()
 

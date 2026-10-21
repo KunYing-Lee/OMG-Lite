@@ -740,7 +740,7 @@ class MotionGenerator(pl.LightningModule):
                 name: self._scalar(host[f"grad/{name}"]) for name in loss_term_grad_norms
             },
             "numeric": {
-                "rotation_representation": getattr(codec, "rotation_representation", "quat"),
+                "rotation_representation": getattr(codec, "rotation_representation", "rot6d"),
                 **{name: self._scalar(host[f"numeric/{name}"]) for name in numeric},
                 "valid_frames": int(host["valid_frames"].item()),
                 "finite_pred_features": bool(host["finite_pred_features"].item()),

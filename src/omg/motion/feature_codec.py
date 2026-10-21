@@ -32,11 +32,11 @@ class G1MotionFeatureCodec:
     def __init__(
         self,
         kinematics: G1Kinematics,
-        num_prev_states: int = 2,
+        num_prev_states: int = 10,
         canonical_frame_idx: int | None = None,
-        rotation_representation: str = "quat",
+        rotation_representation: str = "rot6d",
         rot6d_gradient_mode: str = "vanilla",
-        include_body_positions: bool = True,
+        include_body_positions: bool = False,
     ):
         self.kinematics = kinematics
         self.num_prev_states = int(num_prev_states)
@@ -50,40 +50,24 @@ class G1MotionFeatureCodec:
         self.num_body_links = self.kinematics.num_bodies - 1
         self.rotation_representation = self._normalize_rotation_representation(rotation_representation)
         self.rot6d_gradient_mode = self._normalize_rot6d_gradient_mode(rot6d_gradient_mode)
-        self.root_rot_dim = {"quat": 4, "rot6d": 6}[self.rotation_representation]
-        self.include_body_positions = bool(include_body_positions)
-        self.feature_dim = 3 + self.root_rot_dim + self.kinematics.num_joints
-        if self.include_body_positions:
-            self.feature_dim += self.num_body_links * 3
-        joint_start = 3 + self.root_rot_dim
+        self.root_rot_dim = 6
+        if include_body_positions:
+            raise ValueError("Only 38D pose features are supported; body positions are derived by FK")
+        self.include_body_positions = False
+        self.feature_dim = 38
         self.feature_slices = {
             "root_pos_local": (0, 3),
-            "root_rot_local": (3, joint_start),
-            "root_rot_local_quat": (3, joint_start),
-            "joint_dof": (joint_start, joint_start + self.kinematics.num_joints),
-            "body_link_pos_local": (
-                joint_start + self.kinematics.num_joints,
-                self.feature_dim,
-            ),
+            "root_rot_local": (3, 9),
+            "root_rot_local_quat": (3, 9),
+            "joint_dof": (9, 38),
         }
-
-        if not self.include_body_positions:
-            del self.feature_slices["body_link_pos_local"]
 
     @staticmethod
     def _normalize_rotation_representation(value: str) -> str:
         key = str(value).strip().lower().replace("-", "_")
-        aliases = {
-            "quat": "quat",
-            "quaternion": "quat",
-            "quat4": "quat",
-            "rot6d": "rot6d",
-            "rotation_6d": "rot6d",
-            "6d": "rot6d",
-        }
-        if key not in aliases:
-            raise ValueError(f"Unsupported rotation_representation={value!r}; expected quat or rot6d")
-        return aliases[key]
+        if key != "rot6d":
+            raise ValueError("Only rot6d rotation features are supported by the 38D representation")
+        return key
 
     @staticmethod
     def _normalize_rot6d_gradient_mode(value: str) -> str:
@@ -134,15 +118,11 @@ class G1MotionFeatureCodec:
 
     def rotation_quat_to_features(self, quat: torch.Tensor) -> torch.Tensor:
         quat = self._standardize_quat(quat)
-        if self.rotation_representation == "quat":
-            return quat
         if self.rotation_representation == "rot6d":
             return matrix_to_rotation_6d(quaternion_to_matrix(quat))
         raise AssertionError(f"Unhandled rotation_representation={self.rotation_representation}")
 
     def rotation_features_to_quat(self, features: torch.Tensor) -> torch.Tensor:
-        if self.rotation_representation == "quat":
-            return self._standardize_quat(features)
         if self.rotation_representation == "rot6d":
             if self.rot6d_gradient_mode == "canonical":
                 rotation = rotation_6d_to_matrix_canonical_gradient(features)
@@ -157,8 +137,6 @@ class G1MotionFeatureCodec:
             self.rotation_quat_to_features(components.root_rot_local_quat),
             components.joint_dof,
         ]
-        if self.include_body_positions:
-            parts.append(components.body_link_pos_local.flatten(-2))
         return torch.cat(parts, dim=-1)
 
     def split_features(self, features: torch.Tensor) -> MotionComponents:
@@ -169,15 +147,9 @@ class G1MotionFeatureCodec:
         root_rot_features = features[..., s["root_rot_local"][0] : s["root_rot_local"][1]]
         root_quat = self.rotation_features_to_quat(root_rot_features)
         joint_dof = features[..., s["joint_dof"][0] : s["joint_dof"][1]]
-        if self.include_body_positions:
-            body_link_pos = features[..., s["body_link_pos_local"][0]:].reshape(
-                *features.shape[:-1], self.num_body_links, 3
-            )
-        else:
-            # FK is equivariant under the canonical frame's rigid transform.
-            # Evaluate directly in that frame; all gradients flow to pose variables.
-            local_qpos = torch.cat([root_pos, root_quat, joint_dof], dim=-1)
-            body_link_pos = self.kinematics.forward_body_positions(local_qpos)[..., 1:, :]
+        # FK is equivariant under the canonical frame's rigid transform.
+        local_qpos = torch.cat([root_pos, root_quat, joint_dof], dim=-1)
+        body_link_pos = self.kinematics.forward_body_positions(local_qpos)[..., 1:, :]
         return MotionComponents(root_pos, root_quat, joint_dof, body_link_pos)
 
     def _split_qpos_36(self, qpos_36: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

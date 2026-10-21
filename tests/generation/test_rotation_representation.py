@@ -20,8 +20,7 @@ def _codec(rotation_representation: str) -> G1MotionFeatureCodec:
 
 
 def test_root_rotation_representations_have_expected_feature_dims():
-    assert _codec("quat").feature_dim == 123
-    assert _codec("rot6d").feature_dim == 125
+    assert _codec("rot6d").feature_dim == 38
 
 
 def test_root_rotation_representation_roundtrip_to_quaternion():
@@ -36,7 +35,7 @@ def test_root_rotation_representation_roundtrip_to_quaternion():
     quat = axis_angle_to_quaternion(axis_angle)
     quat = quat / quat.norm(dim=-1, keepdim=True)
 
-    for representation in ("quat", "rot6d"):
+    for representation in ("rot6d",):
         codec = _codec(representation)
         features = codec.rotation_quat_to_features(quat)
         recovered = codec.rotation_features_to_quat(features)

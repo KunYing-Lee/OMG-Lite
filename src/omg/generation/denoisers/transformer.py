@@ -577,7 +577,7 @@ class MotionTransformerDenoiser(BaseMotionDenoiser):
 
     def __init__(
         self,
-        input_dim: int = 123,
+        input_dim: int = 38,
         hidden_dim: int = 512,
         num_layers: int = 12,
         num_heads: int = 8,

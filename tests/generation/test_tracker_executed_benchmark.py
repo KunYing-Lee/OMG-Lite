@@ -82,7 +82,7 @@ def test_write_tracker_artifacts_schema(tmp_path):
         actions=actions,
         generated_qpos=generated,
         reference_qpos=reference,
-        fps=np.asarray([30.0, 30.0, 30.0], dtype=np.float32),
+        fps=np.asarray([50.0, 50.0, 50.0], dtype=np.float32),
         captions=["a", "b", "c"],
         dataset_names=["d0", "d1", "d2"],
         dataset_indices=[10, 11, 12],

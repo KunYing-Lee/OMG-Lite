@@ -1,8 +1,7 @@
 # OMG-Lite
 
 Native **50Hz**, text-conditioned motion generation and HoloMotion tracking.
-Training defaults to a 50M **38D** pose model; matching 50Hz **125D** checkpoints
-are also supported. See [pose representation](docs/pose38.md).
+Training and inference use only the **38D** pose representation at **50Hz**. See [pose representation](docs/pose38.md).
 
 ## One pipeline
 
@@ -31,21 +30,33 @@ make install
 export PYTHONPATH=src
 ```
 
-Use a native 50Hz dataset/cache and matching stats; the original 30Hz OMG
-release is not a runtime input. Set `OMG_DATA_ROOT`, `OMG_MATERIALIZED_ROOT`,
-and `OMG_MODELS_ROOT` for your storage. See [data](docs/data.md).
+## Released checkpoint: generate a motion
 
-The [50Hz epoch3 125D checkpoint](https://huggingface.co/THU-MARS/OMG/blob/main/checkpoints/updated/50Hz/sstep=049431.ckpt)
-is step 49431. It is **not** a 38D checkpoint. Pair it with its saved resolved
-training config and `assets/stats/g1_125d_50hz_hist10_stats.json`.
-Download HoloMotion v1.4.1 separately from its official release.
+Download the [38D inference bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D):
+
+```bash
+python - <<'PYCODE'
+from huggingface_hub import snapshot_download
+snapshot_download("THU-MARS/OMG", allow_patterns=["checkpoints/updated/38D/*"], local_dir="hf-artifacts")
+PYCODE
+python hf-artifacts/checkpoints/updated/38D/infer.py \
+  --text 'walk forward' --output outputs/walk_38d.npz
+```
+
+The bundle contains step75500, portable config, matching stats, startup history,
+robot kinematics and an inference script. First use downloads T5-base; use
+`--t5 /absolute/path/to/t5-base` for offline inference. Output is 100 frames of
+raw `qpos_36` at 50Hz. No training dataset or tracker is needed for this command.
+See [artifacts](docs/artifacts.md) for validation and dependencies.
+
+Training uses a native50Hz dataset/cache. Set `OMG_DATA_ROOT`,
+`OMG_MATERIALIZED_ROOT`, and `OMG_MODELS_ROOT`; see [data](docs/data.md).
+Download HoloMotion v1.4.1 separately for tracking.
 
 ## Train
 
 ```bash
 python -m omg.cli.generation.train exp=base
-# Explicit 125D model, same native 50Hz protocol:
-python -m omg.cli.generation.train exp=base representation=125d
 ```
 
 `base` uses 100 prediction frames, history10, sinusoidal history encoding,
@@ -57,7 +68,7 @@ inherit this protocol. See [training](docs/training_50hz.md).
 ```bash
 python -m omg.cli.pipeline.main \
   --config /path/to/resolved_training_config.yaml \
-  --checkpoint /path/to/sstep=049431.ckpt \
+  --checkpoint /path/to/sstep=075500.ckpt \
   --tracker /path/to/model_16200_dynamic_batch.onnx \
   --seed-motion /path/to/native_50hz_seed.npz \
   --text 'walk forward' --mode sync --frames 500 --output outputs/sync_walk
@@ -79,11 +90,7 @@ is not physical-robot acceptance.
 
 ## Benchmark and development
 
-Generate new native-50Hz manifests for the active dataset; do not reuse 30Hz
-window indices. See [benchmark](docs/benchmark.md) and
-[validation results](docs/native50_validation.md). Historical OMG pipelines remain in the OMG
+Generate native50Hz manifests for the active dataset. See [benchmark](docs/benchmark.md). Historical OMG pipelines remain in the OMG
 repository, not in this runtime.
 
 [MIT License](LICENSE)
-
-Half-second schedule evaluation: [validation report](docs/half_second_validation.md).

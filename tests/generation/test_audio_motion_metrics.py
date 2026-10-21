@@ -137,15 +137,15 @@ def test_tracking_metrics_reject_flat_motion_vectors():
 
 def test_aistpp_kinetic_features_are_zero_for_static_motion():
     positions = np.zeros((1, 5, 2, 3), dtype=np.float32)
-    features = kinetic_features(positions, fps=np.array([30.0]), up_axis="z")
+    features = kinetic_features(positions, fps=np.array([50.0]), up_axis="z")
     assert features.shape == (1, 6)
     assert np.allclose(features, 0.0)
 
 
 def test_aistpp_kinetic_features_measure_root_relative_horizontal_energy():
     positions = np.zeros((1, 6, 2, 3), dtype=np.float32)
-    positions[0, :, 1, 0] = np.arange(6, dtype=np.float32) / 30.0
-    features = kinetic_features(positions, fps=np.array([30.0]), up_axis="z", sliding_window=1)
+    positions[0, :, 1, 0] = np.arange(6, dtype=np.float32) / 50.0
+    features = kinetic_features(positions, fps=np.array([50.0]), up_axis="z", sliding_window=1)
     assert features[0, 3] == pytest.approx(1.0)
     assert features[0, 4] == pytest.approx(0.0)
     assert features[0, 5] == pytest.approx(0.0, abs=1e-5)
@@ -165,7 +165,7 @@ def test_edge_pfc_is_zero_for_static_contact():
     positions = np.zeros((1, 5, 3, 3), dtype=np.float32)
     scores = physical_foot_contact_scores(
         positions,
-        fps=np.array([30.0]),
+        fps=np.array([50.0]),
         root_index=0,
         left_foot_indices=[1],
         right_foot_indices=[2],
@@ -184,7 +184,7 @@ def test_edge_pfc_accepts_multiple_foot_points_per_side():
     positions[0, :, 4, 1] = np.linspace(0.0, 0.01, 6)
     scores = physical_foot_contact_scores(
         positions,
-        fps=np.array([30.0]),
+        fps=np.array([50.0]),
         root_index=0,
         left_foot_indices=[1, 2],
         right_foot_indices=[3, 4],
@@ -201,7 +201,7 @@ def test_aistpp_edge_metric_summary_contains_fid_diversity_and_pfc():
     features = aistpp_edge_features(
         reference,
         generated,
-        fps=np.full(4, 30.0),
+        fps=np.full(4, 50.0),
         root_index=0,
         parent_edges=[(0, 1), (1, 2)],
         left_foot_indices=[1],

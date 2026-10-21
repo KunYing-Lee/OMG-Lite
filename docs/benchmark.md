@@ -9,9 +9,7 @@ PYTHONPATH=src python -m omg.cli.evaluation.prepare_samples \
 
 Use `python -m omg.cli.generation.benchmark --help` for evaluator runs.
 Match representation, statistics, test manifests and frame rate explicitly.
-Historical30Hz sample indices and published scores are not interchangeable
-with the native50Hz cohort. Cross-rate comparisons belong to the separate OMG
-benchmark workflow, where resampling is explicit and documented.
+Only native50Hz artifact inputs are supported.
 
 For deployment parity, run `scripts/validation/native50_sim.py` with fixed
 raw plans, initial history and the HoloMotion model. It compares synchronous

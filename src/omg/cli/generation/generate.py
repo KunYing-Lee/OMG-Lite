@@ -567,7 +567,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Suffix for generated artifact filenames. Defaults to the checkpoint experiment directory name.",
     )
-    parser.add_argument("--num_frames", type=int, default=120)
+    parser.add_argument("--num_frames", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
     text_group = parser.add_mutually_exclusive_group(required=False)
     text_group.add_argument("--text")
@@ -634,7 +634,7 @@ def _parse_args() -> argparse.Namespace:
         help="Alpha for the translucent GT robot overlaid on the generated robot.",
     )
     parser.add_argument("--render_video", action="store_true")
-    parser.add_argument("--fps", type=int, default=50)
+    parser.add_argument("--fps", type=int, choices=[50], default=50)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--camera_view", choices=["iso", "side", "both"], default="iso")
