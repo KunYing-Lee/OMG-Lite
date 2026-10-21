@@ -41,7 +41,7 @@ def test_load_reference_rejects_bad_shape(tmp_path: Path):
 
 def test_native_qpos_rejects_other_fps_and_invalid_quaternion():
     with pytest.raises(ValueError, match="50Hz"):
-        native_qpos(_qpos(), source_fps=30., target_fps=50.)
+        native_qpos(_qpos(), source_fps=25., target_fps=50.)
     q = _qpos(); q[:,3] = 2.
     with pytest.raises(ValueError, match="normalized"):
         native_qpos(q, source_fps=50.)

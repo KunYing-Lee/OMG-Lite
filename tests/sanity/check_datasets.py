@@ -99,7 +99,7 @@ def main() -> int:
             "fix schemas or guess missing side modality files."
         )
     )
-    parser.add_argument("--data", default="omg_data_lerobot", help="Hydra data config name.")
+    parser.add_argument("--data", default="omg_data_50hz_cached", help="Hydra data config name.")
     parser.add_argument("--split", default="train", choices=["train", "val", "test"])
     parser.add_argument("--datasets", nargs="+", default=None, help="Optional exact Hydra dataset names to include.")
     parser.add_argument("--num-samples", type=int, default=3, help="Samples to print per selected dataset.")

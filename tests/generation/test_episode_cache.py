@@ -52,7 +52,7 @@ def test_episode_cache_maps_exact_windows_and_spans(tmp_path) -> None:
                 "format": EpisodeCachedG1MotionDataset.FORMAT,
                 "source_repo_id": SOURCE_REPO_ID,
                 "source_revision": SOURCE_REVISION,
-                "fps": 30.0,
+                "fps": 50.0,
                 "window_size": 3,
                 "num_prev_states": 2,
                 "canonical_frame_idx": 1,
@@ -88,16 +88,14 @@ def test_episode_cache_maps_exact_windows_and_spans(tmp_path) -> None:
     assert dataset[2]["qpos_36"][:, 0].tolist() == [2.0, 3.0, 4.0]
     assert dataset[3]["qpos_36"][:, 0].tolist() == [5.0, 6.0, 7.0]
     assert dataset[3]["caption"] == "stand"
-    assert dataset[3]["motion_features"].shape == (3, 125)
+    assert dataset[3]["motion_features"].shape == (3, 38)
     assert dataset[3]["mask"]["valid"].dtype == torch.bool
-    compact = EpisodeCachedG1MotionDataset(
-        root=tmp_path / "cache", split="train", source_repo_id=SOURCE_REPO_ID,
-        source_revision=SOURCE_REVISION, include_body_positions=False,
-    )
-    for index in range(len(dataset)):
-        for key in ("motion_features", "history_features", "prev_state_features"):
-            torch.testing.assert_close(compact[index][key], dataset[index][key][..., :38])
-        torch.testing.assert_close(compact[index]["qpos_36"], dataset[index]["qpos_36"])
+    summary_path = split_root / "summary.json"
+    summary = json.loads(summary_path.read_text())
+    summary["fps"] = 25.0
+    summary_path.write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="50Hz"):
+        _open_cache(tmp_path / "cache")
 
 
 
@@ -112,7 +110,7 @@ def test_episode_cache_writer_publishes_atomically(tmp_path) -> None:
     class FakeDataset:
         repo_id = SOURCE_REPO_ID
         revision = SOURCE_REVISION
-        default_fps = 30.0
+        default_fps = 50.0
         window_size = 3
         num_prev_states = 2
         train_window_stride = 1
@@ -175,7 +173,7 @@ def test_episode_cache_writer_resumes_completed_shards(tmp_path) -> None:
     class ResumableDataset:
         repo_id = SOURCE_REPO_ID
         revision = SOURCE_REVISION
-        default_fps = 30.0
+        default_fps = 50.0
         window_size = 3
         num_prev_states = 2
         train_window_stride = 1

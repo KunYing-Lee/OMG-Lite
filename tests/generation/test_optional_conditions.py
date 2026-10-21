@@ -27,10 +27,10 @@ def _sample(has_audio: bool, has_human_motion: bool):
     valid = torch.tensor([True, True, False])
     return {
         "length": torch.tensor(2),
-        "fps": torch.tensor(30.0),
+        "fps": torch.tensor(50.0),
         "caption": "walk",
         "has_text": torch.tensor(True),
-        "motion_features": torch.zeros(3, 123),
+        "motion_features": torch.zeros(3, 38),
         "audio_features": torch.ones(3, 35) if has_audio else None,
         "human_motion": torch.ones(3, 66) if has_human_motion else None,
         "mask": {

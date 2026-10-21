@@ -35,7 +35,7 @@ def test_prev_state_features_accept_pos_only_fk():
     qpos = _sample_qpos((4, 2))
     fk = kinematics.forward_kinematics(qpos)
     fast_body_pos = kinematics.forward_body_positions(qpos)
-    fps = torch.full((4,), 30.0)
+    fps = torch.full((4,), 50.0)
 
     baseline, baseline_root_pos, baseline_root_quat = codec.prev_state_features_from_history(
         qpos,

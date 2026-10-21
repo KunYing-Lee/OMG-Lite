@@ -60,7 +60,7 @@ class MotionLoss(nn.Module):
         simple_root_rot: float = 1.0,
         simple_joint_dof: float = 0.5,
         simple_body_pos: float = 0.5,
-        body_pos_consistency: float = 1.0,
+        body_pos_consistency: float = 0.0,
         vel_root_pos: float = 0.5,
         vel_root_rot: float = 0.02,
         vel_joint_dof: float = 0.01,
@@ -80,6 +80,8 @@ class MotionLoss(nn.Module):
         loss_term_clips: Mapping[str, float] | None = None,
     ):
         super().__init__()
+        if body_pos_consistency != 0.0:
+            raise ValueError("Body positions are derived by FK; a separate consistency loss is not supported")
         self.weights = {
             "simple_root_pos": float(simple_root_pos),
             "simple_root_rot": float(simple_root_rot),
@@ -217,11 +219,6 @@ class MotionLoss(nn.Module):
         pred_fk_local = None
         if needs_fk:
             pred_qpos, pred_fk, pred_fk_local = self._decode_fk(pred, batch, representation, valid)
-            if representation.codec.include_body_positions:
-                terms["body_pos_consistency_loss"] = _masked_element_mean(
-                    (pred.body_link_pos_local - pred_fk_local.body_link_pos_local).pow(2),
-                    valid[:, :, None],
-                )
             terms["fk_body_pos_loss"] = _masked_element_mean(
                 (pred_fk_local.body_link_pos_local - gt.body_link_pos_local).pow(2),
                 valid[:, :, None],

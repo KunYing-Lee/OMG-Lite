@@ -170,7 +170,7 @@ def test_export_cli_contract_format():
             "format": "omg.denoiser_step",
             "sequence_length": 60,
             "num_prev_states": 10,
-            "feat_dim": 123,
+            "feat_dim": 38,
             "text_dim": 768,
             "diffusion_type": "GuidedDiffusion",
         }

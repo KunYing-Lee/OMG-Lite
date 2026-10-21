@@ -98,7 +98,7 @@ def main() -> int:
     )
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--seq-len", type=int, default=8)
-    parser.add_argument("--feat-dim", type=int, default=123)
+    parser.add_argument("--feat-dim", type=int, default=38)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--num-layers", type=int, default=2)
     parser.add_argument("--num-heads", type=int, default=4)

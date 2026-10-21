@@ -101,8 +101,8 @@ def _validate_generated(arrays: dict[str, np.ndarray]) -> None:
     if fps.shape != (num_samples,):
         raise ValueError(f"generated fps must have shape ({num_samples},), got {fps.shape}")
     fps64 = fps.astype(np.float64)
-    if not np.isfinite(fps64).all() or np.any(fps64 <= 0.0):
-        raise ValueError("generated fps must be finite and positive")
+    if not np.all(fps64 == 50.0):
+        raise ValueError("generated fps must be native 50Hz")
     for key in ("captions", "dataset", "dataset_index"):
         if np.asarray(arrays[key]).shape != (num_samples,):
             raise ValueError(f"generated {key} must have shape ({num_samples},), got {arrays[key].shape}")

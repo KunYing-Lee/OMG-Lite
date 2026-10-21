@@ -1,4 +1,4 @@
-"""Native checkpoint inference; supports both 38D and 125D representations."""
+"""Native checkpoint inference; 38D pose representation at 50 Hz."""
 
 import json
 import time

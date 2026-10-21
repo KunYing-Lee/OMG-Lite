@@ -31,7 +31,7 @@ PYTHONPATH=src python -m omg.cli.realtime.planner_server \
 
 Strict checkpoint loading, architecture contract validation, history10,
 horizon100, 50 DDIM steps, CFG2.5. Native checkpoints carry their representation;
-38D and 125D are not interchangeable. No DiT skip/cache approximation is enabled.
+Use the matching 38D checkpoint and statistics. No DiT skip/cache approximation is enabled.
 
 ## Orin bridge
 

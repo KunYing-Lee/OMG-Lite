@@ -374,7 +374,7 @@ class GenerationDataModule(pl.LightningDataModule):
         train_subset_seed: int = 1234,
         train_subset_ratio: float | None = None,
         train_subset_percent: float | None = None,
-        rotation_representation: str = "quat",
+        rotation_representation: str = "rot6d",
         train_window_policy: str | None = None,
         train_window_stride: int | None = None,
         train_sampler_policy: str = "auto",

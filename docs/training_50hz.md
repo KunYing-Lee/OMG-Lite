@@ -12,14 +12,12 @@ to `local/OMG-Data-50Hz`, revision
 `sha256:ff4243bdc4dd1fb242ca9419cd99080329300de55bb7b70a417ca5055e8a843e`.
 The cache must describe 50Hz, 100 future frames, 10 history frames, canonical
 anchor 9 and rot6d. The reference training split contains 101,240,125 windows.
-Use the committed matching window-weighted 38D statistics (or 125D when explicitly selected) (reference file
-SHA-256 `e54506da9f218ea8f259fd18f7f8de3d9c577a53e34d95cb53e2a7d972846c8f`).
-This change does not include resampling, statistics computation, cache building,
-data artifacts or machine-specific paths.
+Use the committed matching window-weighted 38D statistics, SHA256
+`67c6f9844a9a7498a3e6c0177c015d10f94617199416c74b525eddb22cf9c44a`.
 
 ```bash
 export OMG_MATERIALIZED_ROOT=/path/to/prepared/cache
-export OMG50_STATS_PATH=/path/to/g1_125d_50hz_hist10_stats.json
+export OMG50_STATS_PATH=/path/to/g1_38d_50hz_hist10_stats.json
 export OMG_MODELS_ROOT=/path/to/models  # contains t5-base-local
 PYTHONPATH=src python -m torch.distributed.run --standalone --nproc_per_node=8 \
   -m omg.cli.generation.train exp=base
@@ -34,7 +32,7 @@ hyperparameters plus optimizer/scheduler state. CSV metrics are under
 ## Protocol
 
 - Fresh motion-model initialization, seed 1234; frozen pretrained T5-base.
-- 38D rot6d by default (125D optional), 100 predicted frames (2s), 10 history frames (0.2s).
+- 38D rot6d, 100 predicted frames (2s), 10 history frames (0.2s).
 - 10 layers, width 512, 8 heads, MLP ratio 4, dropout 0.1. Sinusoidal history
   positions, RoPE motion attention, self/cross QK normalization.
 - Text only; text/history condition dropout 0.3/0.1. Diffusion-only loss;

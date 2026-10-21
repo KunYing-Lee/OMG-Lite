@@ -159,7 +159,7 @@ def _write_nonzero_offset_fixture(root: Path, *, split: str) -> str:
     return hashlib.sha256(manifest_path.read_bytes()).hexdigest()
 
 
-@pytest.mark.parametrize("include_body_positions", [True, False])
+@pytest.mark.parametrize("include_body_positions", [False])
 def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_body_positions: bool) -> None:
     dataset_root = tmp_path / "lerobot"
     manifest_sha256 = _write_lerobot_fixture(dataset_root)
@@ -198,7 +198,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
     assert fk_calls == sample_fk_calls + 1
     assert sample["caption"] == "walk forward; style: steady"
     assert sample["qpos_36"].shape == (100, 36)
-    assert sample["motion_features"].shape[-1] == (125 if include_body_positions else 38)
+    assert sample["motion_features"].shape[-1] == 38
     assert sample["mask"]["valid"].sum().item() == 5
     assert sample["qpos_36"][0, 0].item() == 2.0
     assert sample["mask"]["has_audio"].sum().item() == 5

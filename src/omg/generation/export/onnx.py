@@ -501,7 +501,7 @@ def build_export_metadata(
         "sample_alphas_cumprod": _to_list(diffusion.sample_alphas_cumprod),
         "sample_alphas_cumprod_prev": _to_list(diffusion.sample_alphas_cumprod_prev),
         "feat_dim": int(representation.feat_dim),
-        "rotation_representation": str(getattr(representation, "rotation_representation", "quat")),
+        "rotation_representation": str(getattr(representation, "rotation_representation", "rot6d")),
         "sequence_length": int(representation.sequence_length),
         "num_prev_states": int(representation.num_prev_states),
         "canonical_frame_idx": int(representation.canonical_frame_idx),

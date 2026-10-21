@@ -22,16 +22,16 @@ def _resolve_repo_path(path: str | Path) -> Path:
 class G1MotionRepresentation(nn.Module):
     def __init__(
         self,
-        stats_path: str | Path = "assets/stats/g1_125d_50hz_hist10_stats.json",
+        stats_path: str | Path = "assets/stats/g1_38d_50hz_hist10_stats.json",
         kinematics_path: str | Path = "assets/robots/g1/g1_kinematics.json",
         num_prev_states: int = 10,
         canonical_frame_idx: int | None = None,
-        feat_dim: int = 125,
+        feat_dim: int = 38,
         sequence_length: int = 100,
         clip_std_min: float = 1e-6,
         rotation_representation: str = "rot6d",
         rot6d_gradient_mode: str = "vanilla",
-        include_body_positions: bool = True,
+        include_body_positions: bool = False,
     ):
         super().__init__()
         self.feat_dim = feat_dim
@@ -56,6 +56,9 @@ class G1MotionRepresentation(nn.Module):
 
         with open(self.stats_path, "r", encoding="utf-8") as f:
             stats = json.load(f)
+
+        if stats.get("fps") != 50:
+            raise ValueError("Motion statistics must describe native 50Hz data")
 
         mean = torch.tensor(stats["mean"], dtype=torch.float32)
         std = torch.tensor(stats["std"], dtype=torch.float32)
