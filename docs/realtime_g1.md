@@ -10,7 +10,10 @@ motion acceptance remain pending.
 
 ## Pipeline
 
-Generate 100 frames from 10 history frames with 50-step DDIM and CFG 2.5.
+Generate 100 frames from 10 history frames with **DDIM20 + DiT cache**, TensorRT FP16 and CFG 2.5.
+CFG batch2 evaluates conditional/null branches in one forward. Cache uses
+cosine threshold 0.995, four full warmup forwards, at most two consecutive
+skips; DDIM updates still run on all 20 steps.
 Startup history is measured; subsequent history comes from the raw plan.
 
 | Default schedule | Frame |
@@ -32,13 +35,37 @@ The server and generic bridge support `--switch-seconds` from 0.5 to 2.0 in
 
 From the OMG-Lite checkout, with the downloaded inference bundle:
 
+Install the GPU runtime (`pip install -e '.[train,export,tracking,realtime]'`)
+and TensorRT libraries on the GPU host. Export the matching checkpoint with
+`omg.cli.generation.export_onnx --exp base --ckpt_path ... --output ...` plus
+its exact architecture, statistics and local T5 overrides. Export now defaults
+to 20 DDIM steps and batch2; training/validation defaults remain unchanged.
+The ONNX graph and its external weights must stay together. Its metadata must
+point to available 38D/50Hz statistics, G1 kinematics and T5 files.
+
 ```bash
-export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/38D"
 PYTHONPATH=src python -m omg.cli.realtime.planner_server \
-  --config "$OMG38_ARTIFACT_DIR/config.yaml" \
-  --checkpoint "$OMG38_ARTIFACT_DIR/sstep=075500.ckpt" \
+  --onnx /path/to/denoiser.onnx \
+  --metadata /path/to/denoiser.metadata.json \
+  --text-encoder /path/to/t5-base-local \
+  --engine-cache /path/to/trt_engine \
   --bind tcp://0.0.0.0:5571 --switch-seconds 1.0
 ```
+
+The default backend requires TensorRT, fixed batch2 and 20-step metadata;
+missing providers or incompatible exports fail explicitly. An old 50-step
+sidecar must be regenerated from the checkpoint's diffusion configuration,
+including all cumulative-alpha buffers, not truncated to 20 entries. The
+single-step ONNX graph/engine itself does not encode the sampling schedule.
+The exporter prints the sidecar filename; `--metadata` can be omitted when
+using its standard adjacent sidecar. Engine building and first prompt encoding
+are cold-start work; initialize before active control. Responses expose the
+sampler, cache settings and actual full/skipped forward counts.
+
+The previous checkpoint-based PyTorch DDIM50 path remains available explicitly
+with `--backend pytorch --config ... --checkpoint ...`; it has no DiT cache.
+There is no automatic backend substitution. Existing running services are not
+reconfigured by changing this default.
 
 ## 2. Orin validation
 

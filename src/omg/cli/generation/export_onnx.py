@@ -101,6 +101,7 @@ def main() -> None:
                 f"exp={args.exp}",
                 "logger=none",
                 "trainer=1gpu",
+                "diffusion.test_timestep_respacing=20",
                 *args.overrides,
             ],
         )

@@ -38,7 +38,7 @@ class PlannerService:
             request_tracker_frame=request.tracker_frame,
             prompt=request.prompt,
             planning_latency_seconds=result["latency_s"],
-            metadata={"switch_frame": switch, "period_frames": self.schedule.period},
+            metadata={**result.get("metadata", {}), "switch_frame": switch, "period_frames": self.schedule.period},
         )
 
 

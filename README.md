@@ -96,7 +96,8 @@ See [Generation](docs/generation.md) and [Benchmarks](docs/benchmark.md).
 
 ## 5. Deploy on G1
 
-Run generation on the GPU host and tracking on Orin. The default pipeline
+Run generation on the GPU host and tracking on Orin. The planner server defaults
+to **DDIM20 + DiT cache, TensorRT FP16, CFG batch2**. The default pipeline
 requests at frame 25 using raw frames 40–49, then switches at frame 50.
 Tracker preview requires a reply within **280 ms**.
 
