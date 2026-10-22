@@ -1,4 +1,4 @@
-"""Native preview packets for a 50Hz HoloMotion policy loop (not legacy obs65).
+"""Native preview packets for a 50Hz HoloMotion policy loop.
 
 A packet carries one preceding sample, current +10 preview samples, and one
 extra sample for finite differences. No resampling or extrapolation occurs.

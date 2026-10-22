@@ -6,7 +6,6 @@ simple_body_pos: 0.0
 vel_root_pos: 0.0
 vel_root_rot: 0.0
 vel_joint_dof: 0.0
-body_pos_consistency: 0.0
 fk_body_pos: 1.0
 fk_body_rot: 0.0
 body_vel: 0.0

@@ -5,8 +5,8 @@ Implements TextOp/temporal-composition style transition metrics:
 - AUJ: area under jerk deviation from the reference dataset jerk level.
 
 For autoregressive generation, transition windows are centered on each chunk
-boundary. With a 60-frame chunk and 120-frame rollout, the default transition
-window is frames [30, 90), centered on frame 60.
+boundary. At the default 50-frame switch period, a 50-frame transition
+window around the first switch covers frames [25, 75).
 """
 
 from __future__ import annotations

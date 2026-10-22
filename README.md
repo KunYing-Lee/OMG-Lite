@@ -5,10 +5,10 @@
     Built on <a href="https://github.com/Tsinghua-MARS-Lab/OMG">OMG: Omni-Modal Motion Generation for Generalist Humanoid Control</a>.
   </p>
   <p>
-    <a href="https://github.com/Tsinghua-MARS-Lab/OMG">Original OMG</a> ·
-    <a href="https://tsinghua-mars-lab.github.io/OMG/">Project Page</a> ·
-    <a href="https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D">38D Checkpoint</a> ·
-    <a href="docs/realtime_g1.md">Deployment</a>
+    <a href="https://github.com/Tsinghua-MARS-Lab/OMG"><img src="https://img.shields.io/badge/GitHub-Original_OMG-181717?logo=github" alt="Original OMG"></a>
+    <a href="https://tsinghua-mars-lab.github.io/OMG/"><img src="https://img.shields.io/badge/Website-Page-Green" alt="Project Page"></a>
+    <a href="https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model-38D-FFD21E" alt="38D Checkpoint"></a>
+    <a href="docs/realtime_g1.md"><img src="https://img.shields.io/badge/Docs-Deployment-007EC6" alt="Deployment"></a>
   </p>
 </div>
 

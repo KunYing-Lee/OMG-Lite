@@ -58,3 +58,11 @@ def test_motion_plan_chunk_round_trip_with_features() -> None:
 def test_rejects_invalid_qpos_shape() -> None:
     with pytest.raises(ValueError, match="qpos_36_history"):
         RobotStateRequest(qpos_36_history=np.zeros((10, 35), dtype=np.float32), history_fps=50.0, tracker_frame=0)
+
+
+def test_rejects_non_native_history_and_plan_rates():
+    for fps in (30.0, 60.0):
+        with pytest.raises(ValueError, match="50Hz"):
+            RobotStateRequest(qpos_36_history=_qpos(10), history_fps=fps, tracker_frame=0)
+        with pytest.raises(ValueError, match="50Hz"):
+            MotionPlanChunk(qpos_36=_qpos(100), fps=fps, request_id="invalid-rate", plan_id=0, request_tracker_frame=0)

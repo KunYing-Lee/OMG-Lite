@@ -69,7 +69,7 @@ def test_default_and_opt_in_fk_configuration_and_backward():
              "canon_root_pos": pos, "canon_root_quat": quat, "qpos_36": qpos, **fk}
     result = loss(pred, target, batch, representation)
     torch.testing.assert_close(result["motion_loss"], torch.tensor(.01 / 3), atol=1e-7, rtol=1e-5)
-    assert result["body_pos_consistency_loss"] == 0
+    assert "body_pos_consistency_loss" not in result
     result["motion_loss"].backward()
     assert torch.isfinite(pred.grad).all()
     assert pred.grad[..., :3].norm() > 0
@@ -126,3 +126,20 @@ def test_statistics_reject_other_frame_rates(tmp_path):
     path.write_text(json.dumps(stats))
     with pytest.raises(ValueError, match="50Hz"):
         G1MotionRepresentation(stats_path=path)
+
+
+def test_retired_body_consistency_cannot_be_enabled():
+    from omg.generation.losses.motion import MotionLoss
+    import pytest
+    with pytest.raises(ValueError, match="consistency loss is not supported"):
+        MotionLoss(body_pos_consistency=1.0)
+    assert "body_pos_consistency" not in MotionLoss(body_pos_consistency=0.0).weights
+
+
+def test_rejects_expanded_body_position_features():
+    kin = G1Kinematics()
+    with pytest.raises(ValueError, match="Only 38D"):
+        G1MotionFeatureCodec(kin, include_body_positions=True)
+    codec = G1MotionFeatureCodec(kin)
+    with pytest.raises(ValueError):
+        codec.split_features(torch.zeros(1, 10, 125))

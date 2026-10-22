@@ -80,6 +80,7 @@ class MotionLoss(nn.Module):
         loss_term_clips: Mapping[str, float] | None = None,
     ):
         super().__init__()
+        # Released configs may carry the disabled field; never enable the retired loss.
         if body_pos_consistency != 0.0:
             raise ValueError("Body positions are derived by FK; a separate consistency loss is not supported")
         self.weights = {
@@ -87,7 +88,6 @@ class MotionLoss(nn.Module):
             "simple_root_rot": float(simple_root_rot),
             "simple_joint_dof": float(simple_joint_dof),
             "simple_body_pos": float(simple_body_pos),
-            "body_pos_consistency": float(body_pos_consistency),
             "vel_root_pos": float(vel_root_pos),
             "vel_root_rot": float(vel_root_rot),
             "vel_joint_dof": float(vel_joint_dof),
@@ -171,7 +171,6 @@ class MotionLoss(nn.Module):
             "simple_root_rot_loss": _masked_element_mean(_quat_chordal_sq(pred.root_rot_local_quat, gt.root_rot_local_quat), valid),
             "simple_joint_dof_loss": _masked_element_mean((pred.joint_dof - gt.joint_dof).pow(2), valid),
             "simple_body_pos_loss": _masked_element_mean((pred.body_link_pos_local - gt.body_link_pos_local).pow(2), valid[:, :, None]),
-            "body_pos_consistency_loss": zero,
             "vel_root_pos_loss": zero,
             "vel_root_rot_loss": zero,
             "vel_joint_dof_loss": zero,
@@ -205,7 +204,6 @@ class MotionLoss(nn.Module):
         needs_fk = any(
             self.weights[name] > 0.0
             for name in (
-                "body_pos_consistency",
                 "fk_body_pos",
                 "fk_body_rot",
                 "body_vel",
