@@ -1,5 +1,7 @@
 # Native 50Hz data
 
+For the current public multimodal release, use the [multimodal 50 Hz guide](data/multimodal_50hz.md). This page documents the historical text-only data and training protocol.
+
 Use the prepared `local/OMG-Data-50Hz` snapshot pinned by
 `configs/generation/data/omg_data_50hz.yaml`, or the matching episode cache in
 `omg_data_50hz_cached.yaml`. These configs pin source revision and manifest

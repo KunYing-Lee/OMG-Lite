@@ -1,0 +1,75 @@
+_target_: omg.data.datamodule.GenerationDataModule
+limit_each_trainset: null
+train_subset_ratio: null
+rotation_representation: ${representation.rotation_representation}
+dataset_opts:
+  train:
+    omg_lerobot_train:
+      include_body_positions: ${representation.include_body_positions}
+      _target_: omg.data.lerobot_dataset.LeRobotG1MotionDataset
+      dataset_root: ${oc.env:OMG_LITE_DATA_ROOT,null}
+      repo_id: THU-MARS/OMG-Lite-Data
+      revision: 0cf9684b20ed4c4c4762b39256de63f22df62634
+      manifest_sha256: c6f98804a596915d02af1a79978e3336a4664f9722a45b82486de30676a56db1
+      sequence_duration: 2.0
+      num_prev_states: ${representation.num_prev_states}
+      canonical_frame_idx: ${representation.canonical_frame_idx}
+      fps: 50.0
+      use_text: true
+      use_audio: true
+      audio_dim: 35
+      use_human_motion: true
+      human_motion_dim: 66
+      split: train
+      train_window_stride: 1
+  val:
+    omg_lerobot_val:
+      include_body_positions: ${representation.include_body_positions}
+      _target_: omg.data.lerobot_dataset.LeRobotG1MotionDataset
+      dataset_root: ${oc.env:OMG_LITE_DATA_ROOT,null}
+      repo_id: THU-MARS/OMG-Lite-Data
+      revision: 0cf9684b20ed4c4c4762b39256de63f22df62634
+      manifest_sha256: c6f98804a596915d02af1a79978e3336a4664f9722a45b82486de30676a56db1
+      sequence_duration: 2.0
+      num_prev_states: ${representation.num_prev_states}
+      canonical_frame_idx: ${representation.canonical_frame_idx}
+      fps: 50.0
+      use_text: true
+      use_audio: true
+      audio_dim: 35
+      use_human_motion: true
+      human_motion_dim: 66
+      split: val
+      train_window_stride: 1
+  test:
+    omg_lerobot_test:
+      include_body_positions: ${representation.include_body_positions}
+      _target_: omg.data.lerobot_dataset.LeRobotG1MotionDataset
+      dataset_root: ${oc.env:OMG_LITE_DATA_ROOT,null}
+      repo_id: THU-MARS/OMG-Lite-Data
+      revision: 0cf9684b20ed4c4c4762b39256de63f22df62634
+      manifest_sha256: c6f98804a596915d02af1a79978e3336a4664f9722a45b82486de30676a56db1
+      sequence_duration: 2.0
+      num_prev_states: ${representation.num_prev_states}
+      canonical_frame_idx: ${representation.canonical_frame_idx}
+      fps: 50.0
+      use_text: true
+      use_audio: true
+      audio_dim: 35
+      use_human_motion: true
+      human_motion_dim: 66
+      split: test
+      train_window_stride: 1
+loader_opts:
+  train:
+    batch_size: 96
+    num_workers: 0
+    prefetch_factor: null
+  val:
+    batch_size: 16
+    num_workers: 2
+    prefetch_factor: 1
+  test:
+    batch_size: 16
+    num_workers: 2
+    prefetch_factor: 1

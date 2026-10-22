@@ -1,5 +1,7 @@
 # 50Hz text-only pretraining
 
+For the current public multimodal release, use the [multimodal 50 Hz guide](data/multimodal_50hz.md). This page documents the historical text-only data and training protocol.
+
 `exp=base` and its alias `exp=50m_50hz_text_3epochs` select the same protocol.
 The explicit older size presets (`50m`, `100m`, etc.) retain their existing behavior.
 

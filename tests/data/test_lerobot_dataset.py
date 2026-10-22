@@ -20,7 +20,7 @@ TEST_REPO_ID = "example/OMG-Data"
 TEST_REVISION = "1" * 40
 
 
-def _write_lerobot_fixture(root: Path, *, split: str = "train") -> str:
+def _write_lerobot_fixture(root: Path, *, split: str = "train", has_text: bool = True) -> str:
     frame_root = root / "data" / "chunk-000"
     episode_root = root / "meta" / "episodes" / "chunk-000"
     frame_root.mkdir(parents=True)
@@ -60,7 +60,7 @@ def _write_lerobot_fixture(root: Path, *, split: str = "train") -> str:
                 "omg/segment_index": [0],
                 "omg/source_start_frame": [2],
                 "omg/source_end_frame": [7],
-                "omg/has_text": [True],
+                "omg/has_text": [has_text],
                 "omg/has_audio": [True],
                 "omg/has_humanref": [True],
                 "omg/split": [split],
@@ -160,9 +160,10 @@ def _write_nonzero_offset_fixture(root: Path, *, split: str) -> str:
 
 
 @pytest.mark.parametrize("include_body_positions", [False])
-def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_body_positions: bool) -> None:
+@pytest.mark.parametrize("has_text", [False, True])
+def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_body_positions: bool, has_text: bool) -> None:
     dataset_root = tmp_path / "lerobot"
-    manifest_sha256 = _write_lerobot_fixture(dataset_root)
+    manifest_sha256 = _write_lerobot_fixture(dataset_root, has_text=has_text)
     dataset = LeRobotG1MotionDataset(
         dataset_root=dataset_root,
         repo_id=TEST_REPO_ID,
@@ -235,6 +236,7 @@ def test_lerobot_reader_and_episode_cache(tmp_path: Path, monkeypatch: pytest.Mo
     assert cached_sample["mask"]["has_audio"].equal(sample["mask"]["has_audio"])
     assert cached_sample["mask"]["has_human_motion"].equal(sample["mask"]["has_human_motion"])
     assert cached_sample["caption"] == sample["caption"]
+    assert bool(cached_sample["has_text"]) == bool(sample["has_text"]) == has_text
 
 
 def test_lerobot_materialization_translates_nonzero_split_frame_offsets(tmp_path: Path) -> None:

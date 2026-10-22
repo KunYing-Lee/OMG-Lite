@@ -1,0 +1,21 @@
+# @package _global_
+defaults:
+  - base
+  - override /data: omg_lite_multimodal_50hz_cached
+  - _self_
+
+exp_name: 50m_38d_50hz_multimodal_v3_b6144_3epochs_s1234
+representation:
+  # Exact full-training-window statistics for this release.
+  stats_path: ${oc.env:OMG_LITE_MULTIMODAL_STATS,assets/stats/g1_38d_multimodal_50hz_hist10_stats.json}
+model:
+  use_audio: true
+  use_human_motion: true
+  scheduler:
+    t_max: 49977
+trainer:
+  max_steps: 49977
+callbacks:
+  fixed_motion_evaluation:
+    milestone_steps: [16659, 33318, 49977]
+    expected_batches_per_epoch: 16659

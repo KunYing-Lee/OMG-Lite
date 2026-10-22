@@ -25,6 +25,9 @@ def inspect_episode_cache(root: str | Path, split: str) -> dict[str, Any]:
     try:
         source_identity = json.loads((split_root / "source_identity.json").read_text(encoding="utf-8"))
         expected_identity = {
+            "format": EpisodeCachedG1MotionDataset.FORMAT,
+            "use_audio": bool(summary.get("use_audio", False)),
+            "use_human_motion": bool(summary.get("use_human_motion", False)),
             "repo_id": str(summary.get("source_repo_id", "")),
             "revision": str(summary.get("source_revision", "")),
         }
@@ -40,16 +43,20 @@ def inspect_episode_cache(root: str | Path, split: str) -> dict[str, Any]:
             frame_offsets = np.asarray(episode_data["frame_offset"])
             lengths = np.asarray(episode_data["length"])
             window_offsets = np.asarray(episode_data["window_offset"])
+        provenance = json.loads((split_root / "provenance.json").read_text(encoding="utf-8"))
         captions = json.loads((split_root / "captions.json").read_text(encoding="utf-8"))
     except Exception as exc:
         errors.append(str(exc))
         episode_shards = frame_offsets = lengths = window_offsets = np.asarray([])
         captions = []
+        provenance = []
     episodes = int(lengths.shape[0])
     if episode_shards.shape != (episodes,) or frame_offsets.shape != (episodes,):
         errors.append("episode shard/frame-offset arrays have inconsistent shapes")
     if window_offsets.shape != (episodes + 1,):
         errors.append("window offsets do not contain episodes + 1 entries")
+    if len(provenance) != episodes:
+        errors.append("provenance count does not match episode count")
     if len(captions) != episodes:
         errors.append("caption count does not match episode count")
     if episodes and (lengths <= 0).any():
@@ -66,18 +73,19 @@ def inspect_episode_cache(root: str | Path, split: str) -> dict[str, Any]:
             manifest = json.loads((shard_root / "manifest.json").read_text(encoding="utf-8"))
             arrays = {
                 key: np.load(shard_root / f"{key}.npy", mmap_mode="r")
-                for key in ("qpos_36", "body_pos_w", "body_quat_w")
+                for key in ("qpos_36",)
             }
         except Exception as exc:
             errors.append(f"shard {shard_id}: {exc}")
             continue
+        for key in ("body_pos_w", "body_quat_w"):
+            if (shard_root / f"{key}.npy").exists():
+                errors.append(f"shard {shard_id}: redundant FK array {key} is not part of cache v3")
+        if arrays["qpos_36"].dtype != np.float32:
+            errors.append(f"shard {shard_id}: qpos_36 must be float32")
         rows = int(arrays["qpos_36"].shape[0])
         if arrays["qpos_36"].shape[1:] != (36,):
             errors.append(f"shard {shard_id}: qpos_36 shape {arrays['qpos_36'].shape}")
-        if arrays["body_pos_w"].shape != (rows, 30, 3):
-            errors.append(f"shard {shard_id}: body_pos_w shape {arrays['body_pos_w'].shape}")
-        if arrays["body_quat_w"].shape != (rows, 30, 4):
-            errors.append(f"shard {shard_id}: body_quat_w shape {arrays['body_quat_w'].shape}")
         if int(manifest.get("frames", -1)) != rows:
             errors.append(f"shard {shard_id}: manifest frames do not match arrays")
         shard_lengths = np.asarray(manifest.get("episode_lengths", []), dtype=np.int64)
@@ -91,6 +99,8 @@ def inspect_episode_cache(root: str | Path, split: str) -> dict[str, Any]:
         if episode_end > episodes:
             errors.append(f"shard {shard_id}: manifest contains more episodes than index")
         else:
+            if provenance[observed_episode:episode_end] != manifest.get("provenance", []):
+                errors.append(f"shard {shard_id}: source provenance differs from manifest")
             indexed_shards = episode_shards[observed_episode:episode_end]
             indexed_offsets = frame_offsets[observed_episode:episode_end]
             indexed_lengths = lengths[observed_episode:episode_end]
@@ -123,6 +133,9 @@ def inspect_episode_cache(root: str | Path, split: str) -> dict[str, Any]:
             except Exception as exc:
                 errors.append(f"shard {shard_id}: {key}: {exc}")
                 continue
+            expected_dtype = np.bool_ if key.startswith("has_") else np.float32
+            if value.dtype != expected_dtype:
+                errors.append(f"shard {shard_id}: {key} dtype {value.dtype}")
             if value.shape != expected_shape:
                 errors.append(f"shard {shard_id}: {key} shape {value.shape}")
         frame_count += rows

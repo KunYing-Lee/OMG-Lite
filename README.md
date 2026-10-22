@@ -12,7 +12,7 @@
   </p>
 </div>
 
-OMG-Lite adapts OMG for **native 50 Hz**, text-conditioned humanoid motion
+OMG-Lite adapts OMG for **native 50 Hz** humanoid motion
 in a **38D pose space**, with an optimized generation–tracking deployment pipeline.
 
 - **Native 50 Hz:** generate and track at the same rate, without runtime interpolation.
@@ -65,15 +65,17 @@ loads T5-base; no dataset or tracker is needed. See [Artifacts](docs/artifacts.m
 
 ## 3. Train
 
-Prepare the [native 50 Hz dataset/cache](docs/data.md), then run:
+Prepare [THU-MARS/OMG-Lite-Data and the compact cache](docs/data/multimodal_50hz.md), then run:
 
 ```bash
 python -m torch.distributed.run --standalone --nproc_per_node=8 \
-  -m omg.cli.generation.train exp=base
+  -m omg.cli.generation.train exp=multimodal_50hz
 ```
 
 The default predicts 100 frames from 10 history frames, using sinusoidal history
-encoding and Q/K normalization. See [Training](docs/training_50hz.md).
+encoding and Q/K normalization. The public-data preset enables text, audio and human
+reference with separate full-training-window stats. `exp=base` retains the historical
+text-only protocol; see [Training](docs/training_50hz.md).
 
 ## 4. Simulate
 

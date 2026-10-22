@@ -325,6 +325,8 @@ class LeRobotG1MotionDataset(Dataset):
                     "video_summary": str(tasks[0]) if tasks else "",
                     "sequence_name": str(row.get("omg/source_id", row["episode_index"])),
                     "source_dataset": str(row.get("omg/dataset", "")),
+                    "audio_feature_type": str(row.get("omg/audio_feature_type", "unspecified")),
+                    "source_fps": int(row.get("omg/resample_source_fps", self.default_fps)),
                     "segment_index": int(row.get("omg/segment_index", 0)),
                     "source_start_frame": int(row.get("omg/source_start_frame", 0)),
                     "source_end_frame": int(row.get("omg/source_end_frame", length)),
@@ -670,8 +672,9 @@ class LeRobotG1MotionDataset(Dataset):
         device: torch.device | str = "cpu",
         max_episodes: int | None = None,
         episode_start: int = 0,
+        include_kinematics: bool = True,
     ) -> Iterator[dict[str, Any]]:
-        """Yield contiguous episodes after one grouped FK evaluation."""
+        """Yield contiguous episode data, optionally deriving grouped FK."""
         max_frames = int(max_frames)
         if max_frames <= 0:
             raise ValueError(f"max_frames must be positive, got {max_frames}")
@@ -705,36 +708,47 @@ class LeRobotG1MotionDataset(Dataset):
                 columns.extend(("omg.audio.feature", "omg.condition.has_audio"))
             if self.use_human_motion:
                 columns.extend(("omg.humanref.motion", "omg.condition.has_humanref"))
-            raw = self.frame_dataset.select_columns(columns)[data_start:data_end]
+            raw = self.frame_dataset.select_columns(columns).with_format("arrow")[data_start:data_end]
+
+            def vector_column(name: str, width: int) -> np.ndarray:
+                # Flatten the logical Arrow slice before copying; do not expand
+                # millions of scalar coordinates into Python lists.
+                values = raw[name].combine_chunks().flatten().to_numpy(zero_copy_only=False)
+                return np.array(values.reshape(len(raw), width), dtype=np.float32, copy=True)
+
+            def mask_column(name: str) -> np.ndarray:
+                return np.array(raw[name].to_numpy(zero_copy_only=False), dtype=np.bool_, copy=True)
+
             qpos_36 = torch.as_tensor(
-                np.asarray(raw["observation.state"], dtype=np.float32),
+                vector_column("observation.state", 36),
                 dtype=torch.float32,
                 device=target_device,
             )
             qpos_36[..., 3:7] = standardize_quaternion(F.normalize(qpos_36[..., 3:7], dim=-1))
-            fk = self.kinematics.forward_kinematics(qpos_36)
             group = {
                 "episodes": episode_group,
                 "qpos_36": qpos_36,
-                "body_pos_w": fk["body_pos_w"],
-                "body_quat_w": standardize_quaternion(F.normalize(fk["body_quat_w"], dim=-1)),
             }
+            if include_kinematics:
+                fk = self.kinematics.forward_kinematics(qpos_36)
+                group["body_pos_w"] = fk["body_pos_w"]
+                group["body_quat_w"] = standardize_quaternion(F.normalize(fk["body_quat_w"], dim=-1))
             if self.use_audio:
                 group["audio_features"] = torch.as_tensor(
-                    np.asarray(raw["omg.audio.feature"], dtype=np.float32),
+                    vector_column("omg.audio.feature", self.audio_dim),
                     device=target_device,
                 )
                 group["has_audio"] = torch.as_tensor(
-                    np.asarray(raw["omg.condition.has_audio"], dtype=np.bool_),
+                    mask_column("omg.condition.has_audio"),
                     device=target_device,
                 )
             if self.use_human_motion:
                 group["human_motion"] = torch.as_tensor(
-                    np.asarray(raw["omg.humanref.motion"], dtype=np.float32),
+                    vector_column("omg.humanref.motion", self.human_motion_dim),
                     device=target_device,
                 )
                 group["has_human_motion"] = torch.as_tensor(
-                    np.asarray(raw["omg.condition.has_humanref"], dtype=np.bool_),
+                    mask_column("omg.condition.has_humanref"),
                     device=target_device,
                 )
             yield group
@@ -825,7 +839,7 @@ class LeRobotG1MotionDataset(Dataset):
             "canon_root_pos": canon_root_pos[0],
             "canon_root_quat": canon_root_quat[0],
             "caption": caption,
-            "has_text": torch.tensor(bool(caption.strip()), dtype=torch.bool),
+            "has_text": torch.tensor(bool(sample_info["has_text"] and caption.strip()), dtype=torch.bool),
             "mask": {
                 "valid": valid_window_mask,
                 "has_audio": audio_mask,
