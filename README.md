@@ -113,4 +113,3 @@ from [HoloMotion](https://github.com/HorizonRobotics/HoloMotion).
 The released inference bundle remains hosted in the upstream OMG model repository.
 
 [MIT License](LICENSE)
-
