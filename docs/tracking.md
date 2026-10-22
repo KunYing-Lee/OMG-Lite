@@ -2,7 +2,7 @@
 
 HoloMotion consumes native50Hz reference poses. `Tracker` verifies a50Hz
 control period and ten future preview frames. `PlanTimeline` replaces only the
-future suffix at fixed frame50 boundaries. Reference derivatives are computed
+future suffix at fixed boundaries (50 frames by default). Reference derivatives are computed
 on the concatenated raw timeline, without modifying the poses.
 
 The velocity stencil reads one additional sample beyond the ten-frame preview.

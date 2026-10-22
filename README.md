@@ -1,96 +1,99 @@
-# OMG-Lite
+<div align="center">
+  <h1>OMG-Lite</h1>
+  <p>Native 50 Hz · 38D Motion Space · Streamlined Deployment</p>
+  <p>
+    Built on <a href="https://github.com/Tsinghua-MARS-Lab/OMG">OMG: Omni-Modal Motion Generation for Generalist Humanoid Control</a>.
+  </p>
+  <p>
+    <a href="https://github.com/Tsinghua-MARS-Lab/OMG">Original OMG</a> ·
+    <a href="https://tsinghua-mars-lab.github.io/OMG/">Project Page</a> ·
+    <a href="https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D">38D Checkpoint</a> ·
+    <a href="docs/realtime_g1.md">Deployment</a>
+  </p>
+</div>
 
-Native **50Hz**, text-conditioned motion generation and HoloMotion tracking.
-Training and inference use only the **38D** pose representation at **50Hz**. See [pose representation](docs/pose38.md).
+OMG-Lite adapts OMG for **native 50 Hz**, text-conditioned humanoid motion
+in a **38D pose space**, with an optimized generation–tracking deployment pipeline.
 
-## One pipeline
+- **Native 50 Hz:** generate and track at the same rate, without runtime interpolation.
+- **38D poses:** compact motion representation with matching training statistics.
+- **Shared sync/async pipeline:** fixed-time plan switching, ten-frame tracker
+  preview, and a separate async planner process.
 
-- Generate 100 frames (2 seconds), conditioned on 10 history frames.
-- Configure `--switch-seconds` (default **1.0**, minimum **0.5**, maximum **2.0**).
-  Values must be exact 20ms frame increments; invalid values are rejected.
-- For a period of P frames, request at P−25 using **raw frames P−10 through P−1**;
-  new plan frame 0 starts at P. Generation always starts 0.5s before switching.
-- Publish the new future reference as soon as ready. The tracker previews ten
-  frames and velocity needs one more sample: accept before consuming frame P−11.
-  This leaves 280ms for inference and transport at every supported period.
-- `sync` pauses simulation during inference. `async` continues tracking with
-  wall-clock deadlines. They share the same raw-plan timeline.
-- No interpolation, alignment, smoothing, skipped generated frames, or late
-  plan substitution. Unsupported frame rates and missed deadlines are errors.
-
-History after startup is **planned**, not measured: this schedule alone does
-not correct tracking drift or guarantee continuity at a generated boundary.
-
-## Install and artifacts
+## 1. Install
 
 ```bash
+git clone https://github.com/KunYing-Lee/OMG-Lite.git
+cd OMG-Lite
 make venv
 source .venv/bin/activate
 make install
 export PYTHONPATH=src
 ```
 
-## Released checkpoint: generate a motion
+Use `make install-cn` for China mainland networks.
+See [Installation](docs/installation.md) for dependencies.
 
-Download the [38D inference bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D):
+## 2. Download and Generate
+
+Download the [38D / 50 Hz inference bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D):
 
 ```bash
-python - <<'PYCODE'
+python - <<'PY'
 from huggingface_hub import snapshot_download
 snapshot_download("THU-MARS/OMG", allow_patterns=["checkpoints/updated/38D/*"], local_dir="hf-artifacts")
-PYCODE
+PY
 python hf-artifacts/checkpoints/updated/38D/infer.py \
-  --text 'walk forward' --output outputs/walk_38d.npz
+  --text 'walk forward' --output outputs/walk.npz
 ```
 
-The bundle contains step75500, portable config, matching stats, startup history,
-robot kinematics and an inference script. First use downloads T5-base; use
-`--t5 /absolute/path/to/t5-base` for offline inference. Output is 100 frames of
-raw `qpos_36` at 50Hz. No training dataset or tracker is needed for this command.
-See [artifacts](docs/artifacts.md) for validation and dependencies.
+The bundle includes checkpoint, config, statistics and seed motion. First use
+loads T5-base; no dataset or tracker is needed. See [Artifacts](docs/artifacts.md).
 
-Training uses a native50Hz dataset/cache. Set `OMG_DATA_ROOT`,
-`OMG_MATERIALIZED_ROOT`, and `OMG_MODELS_ROOT`; see [data](docs/data.md).
-Download HoloMotion v1.4.1 separately for tracking.
+## 3. Train
 
-## Train
+Prepare the [native 50 Hz dataset/cache](docs/data.md), then run:
 
 ```bash
-python -m omg.cli.generation.train exp=base
+python -m torch.distributed.run --standalone --nproc_per_node=8 \
+  -m omg.cli.generation.train exp=base
 ```
 
-`base` uses 100 prediction frames, history10, sinusoidal history encoding,
-Q/K norm, global batch6144 on eight GPUs, and three epochs. Model-size presets
-inherit this protocol. See [training](docs/training_50hz.md).
+The default predicts 100 frames from 10 history frames, using sinusoidal history
+encoding and Q/K normalization. See [Training](docs/training_50hz.md).
 
-## Simulate
+## 4. Simulate
+
+Download [HoloMotion](https://github.com/HorizonRobotics/HoloMotion) tracking
+artifacts separately. With the inference bundle above:
 
 ```bash
+export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/updated/38D"
 python -m omg.cli.pipeline.main \
-  --config /path/to/resolved_training_config.yaml \
-  --checkpoint /path/to/sstep=075500.ckpt \
+  --config "$OMG38_ARTIFACT_DIR/config.yaml" \
+  --checkpoint "$OMG38_ARTIFACT_DIR/sstep=075500.ckpt" \
+  --seed-motion "$OMG38_ARTIFACT_DIR/seed_stand.npz" \
   --tracker /path/to/model_16200_dynamic_batch.onnx \
-  --seed-motion /path/to/native_50hz_seed.npz \
-  --text 'walk forward' --mode sync --frames 500 --output outputs/sync_walk
+  --text 'walk forward' --mode sync --frames 500 --output outputs/walk
 ```
 
-Use `--switch-seconds 0.5` for half-second switching, or omit it for one second.
-Use `--mode async` for real wall-clock execution with a persistent, independent
-planner process so inference does not block the tracker process. Both keep 50 DDIM steps and
-CFG2.5. The seed NPZ must contain `qpos_36` and scalar `fps=50`; at least ten
-valid history frames are required. Outputs retain raw plans and executed motion.
+Use `--mode async` for wall-clock execution. Both modes retain 50 DDIM steps and
+CFG 2.5. `--switch-seconds` defaults to 1.0 and supports 0.5–2.0 seconds.
+See [Generation](docs/generation.md) and [Benchmarks](docs/benchmark.md).
 
-## Robot deployment
+## 5. Deploy on G1
 
-[Deployment](docs/realtime_g1.md) describes the GPU planner, Orin bridge and
-HoloMotion consumer hook. The old current-frame `obs65` bridge is removed: it
-cannot express the required preview. Physical arming, state estimation, PD and
-emergency stop remain owned by the robot controller. Simulation validation
-is not physical-robot acceptance.
+Run generation on the GPU host and tracking on Orin. The default pipeline
+requests at frame 25 using raw frames 40–49, then switches at frame 50.
+Tracker preview requires a reply within **280 ms**.
 
-## Benchmark and development
+See [G1 Deployment](docs/realtime_g1.md) for setup and validation.
+**The robot adapters are experimental; full shadow and physical acceptance remain pending.**
 
-Generate native50Hz manifests for the active dataset. See [benchmark](docs/benchmark.md). Historical OMG pipelines remain in the OMG
-repository, not in this runtime.
+## Acknowledgements
+
+Based on [OMG](https://github.com/Tsinghua-MARS-Lab/OMG), with motion tracking
+from [HoloMotion](https://github.com/HorizonRobotics/HoloMotion).
+The released inference bundle remains hosted in the upstream OMG model repository.
 
 [MIT License](LICENSE)

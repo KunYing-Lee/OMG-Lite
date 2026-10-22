@@ -1,5 +1,6 @@
 """Exercise the C++ controller only in localhost ROS domain213, with remapped I/O."""
 
+import argparse
 import json
 import os
 import subprocess
@@ -18,13 +19,16 @@ def main():
         or os.environ.get("ROS_LOCALHOST_ONLY") != "1"
     ):
         raise RuntimeError("Stop tests require isolated localhost ROS domain 213")
-    root = Path("/workspace/native50")
-    config = "/opt/holomotion/deployment/unitree_g1_ros2_29dof/src/config/g1_29dof_holomotion.yaml"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--controller", required=True, type=Path)
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    binary = args.controller.resolve(strict=True)
+    config = str(args.config.resolve(strict=True))
     cfg = yaml.safe_load(Path(config).read_text())
-    binary = (
-        root
-        / "controller/install/humanoid_control/lib/humanoid_control/humanoid_control"
-    )
+    root = args.output
+    root.mkdir(parents=True, exist_ok=False)
     rclpy.init()
     node = rclpy.create_node("native50_stop_test")
     results = {}

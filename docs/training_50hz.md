@@ -67,6 +67,3 @@ splitting only boundary shards. Ranks have equal epoch lengths and disjoint
 samples, while retaining shard-local shuffle/interleaving. This is a training
 sampler change, not a dataset preprocessing change. The `auto` sampler behavior
 remains available to other experiments.
-
-The migration comes from training commits `4376b23` and `59b4e99`, plus the
-training-facing configuration from `83adf16`. It excludes deployment/RTC changes.

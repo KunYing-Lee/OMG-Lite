@@ -1,124 +1,41 @@
 # Installation
 
-OMG targets Python 3.10 and CUDA-capable Linux machines for training,
-ONNX export, TensorRT inference, and HoloMotion tracking. macOS can be used for
-lightweight code review and documentation work, but GPU execution is expected on
-Linux.
-
-## Python Environment
-
-Use a repo-local virtual environment.
+Use Python 3.10 and CUDA-capable Linux for training and tracking.
 
 ```bash
-cd /path/to/OMG
-curl -LsSf https://astral.sh/uv/install.sh | sh  # skip if uv is already installed
-uv venv --python 3.10 .venv
-source .venv/bin/activate
-```
-
-Install PyTorch first, then install OMG.
-
-```bash
-uv pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-uv pip install -e ".[all]"
-```
-
-The same setup is available through the Makefile:
-
-```bash
+git clone https://github.com/KunYing-Lee/OMG-Lite.git
+cd OMG-Lite
 make venv
 source .venv/bin/activate
-make install
-```
-
-For China mainland networks:
-
-```bash
-make install-cn
-```
-
-For a smaller install, choose extras by task:
-
-```bash
-uv pip install -e ".[train]"
-uv pip install -e ".[data]"
-uv pip install -e ".[render]"
-uv pip install -e ".[tracking]"
-uv pip install -e ".[export]"
-uv pip install -e ".[realtime]"
-uv pip install -e ".[benchmark]"
-```
-
-Common runtime environment:
-
-```bash
+make install                    # or make install-cn
 export PYTHONPATH=src
 export TOKENIZERS_PARALLELISM=false
 ```
 
-## Data and Model Roots
-
-The release configs default to:
-
-```text
-data/OMG-Data
-models/
-```
-
-Override them when using external disks or shared storage:
+For a smaller environment, install PyTorch and select the required extras:
 
 ```bash
-export OMG_DATA_ROOT=/path/to/OMG-Data
-export OMG_MATERIALIZED_ROOT=/path/to/OMG-Data/materialized
-export OMG_MODELS_ROOT=/path/to/OMG-models
+uv pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+uv pip install -e '.[train,data,render,realtime]'
 ```
 
-Text-conditioned training and generation require the Hugging Face `t5-base`
-text encoder. The default config loads it from:
+Other extras: `tracking`, `export`, `benchmark`, `dev`.
 
-```text
-${OMG_MODELS_ROOT}/t5-base-local
-```
-
-Place a local `t5-base` copy there for offline or cluster runs, or override
-`model.text_encoder.model_name` with a different local path or Hugging Face
-model id.
-
-If the text encoder is already cached and the machine should not access the
-network:
+## Data and models
 
 ```bash
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
+export OMG_DATA_ROOT=/path/to/OMG-Data-50Hz
+export OMG_MATERIALIZED_ROOT="$OMG_DATA_ROOT/materialized"
+export OMG_MODELS_ROOT=/path/to/models
 ```
 
-## HoloMotion Dependencies
+Training expects T5-base at `$OMG_MODELS_ROOT/t5-base-local`. Download
+[T5-base](https://huggingface.co/google-t5/t5-base) for offline use, then set
+`HF_HUB_OFFLINE=1`. See [Data](data.md) and [Artifacts](artifacts.md).
 
-Offline tracker and realtime deployment require:
-
-- HoloMotion motion tracking ONNX model.
-- G1 MuJoCo XML or the default HoloMotion G1 scene.
-- `onnxruntime-gpu` and TensorRT runtime libraries.
-- MuJoCo for offline simulation and rendering.
-
-Download the HoloMotion G1 motion-tracking ONNX model from the official
-[HoloMotion repository](https://github.com/HorizonRobotics/HoloMotion) or the
-[HoloMotion Hugging Face artifacts](https://huggingface.co/HorizonRobotics/HoloMotion_models).
-OMG does not redistribute HoloMotion weights. The recommended local path is:
-
-```text
-models/holomotion/motion_tracking/model.onnx
-```
-
-Pass this path explicitly with `--holomotion-onnx` when running tracking or
-pipeline modes.
-
-For real-robot deployment, prefer the HoloMotion velocity-tracking model and
-place it at:
-
-```text
-models/holomotion/velocity_tracking/model.onnx
-```
-
-See [Generation](generation.md), [Tracking](tracking.md), and
-[Realtime G1 Deployment](realtime_g1.md) for task-specific runtime commands.
+Tracking requires MuJoCo and the HoloMotion motion-tracking ONNX model with
+any external weights beside it. Obtain models from
+[HoloMotion](https://github.com/HorizonRobotics/HoloMotion) or its
+[model repository](https://huggingface.co/HorizonRobotics/HoloMotion_models).
+Pass the motion tracker to the pipeline with `--tracker`; the native G1
+controller also needs its velocity policy. See [G1 Deployment](realtime_g1.md).

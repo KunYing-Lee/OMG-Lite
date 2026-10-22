@@ -2,7 +2,8 @@
 
 Use `python -m omg.cli.pipeline.main --help`. The only integrated execution
 modes are `sync` and `async`; both use native50Hz, prediction100, history10,
-request25, raw history40–49, switch50 and a phase39 preview deadline.
+a configurable switch period (default: request25, raw history40–49,
+switch50 and a phase39 preview deadline).
 
 Pass the saved resolved training config with its checkpoint. Representation,
 normalization and architecture must match. No automatic frame-rate conversion

@@ -1,96 +1,80 @@
-# Native 50Hz G1 deployment
+# G1 Deployment
 
-This path uses the same `PlanTimeline` as simulation. Startup history contains
-10 measured 50Hz qpos36 samples. Configure `--switch-seconds` on **both** the
-GPU server and the Orin bridge; the default is 1.0s. Valid values are 0.5–2.0s
-in 20ms increments. Protocol metadata carries the period, and mismatches are
-rejected before inference, including initialization.
+Generation runs on the GPU host; HoloMotion tracking runs on G1 Orin.
+Use a matching **38D / 50 Hz** checkpoint and statistics.
+The concrete ROS adapters target HoloMotion v1.4.1 / ROS 2 Humble.
 
-For period P frames, request at P−25 with raw history [P−10:P], and switch at P.
-The reply must be accepted before consuming phase P−11: ten preview frames plus
-one derivative sample. The total inference/transport budget stays 280ms.
+**Status:** wired planner and isolated controller-stop tests passed during
+integration. The final sensor shadow run, Orin policy-node load and physical
+motion acceptance remain pending.
 
-| Switch period | Request frame | History frames | Switch frame | Preview deadline |
-|---|---:|---|---:|---:|
-| 0.5s | 0 | 15–24 | 25 | 14 |
-| 0.76s | 13 | 28–37 | 38 | 27 |
-| 1.0s (default) | 25 | 40–49 | 50 | 39 |
-| 2.0s | 75 | 90–99 | 100 | 89 |
+## Pipeline
 
-The Python API uses the same immutable `Schedule(switch_seconds=...)` in
-`run`, `PlanTimeline`, `RemotePlanner`, `PlannerService`, and `DeploymentBridge`.
-Prediction remains 100 frames and history remains 10 frames regardless of period.
+Generate 100 frames from 10 history frames with 50-step DDIM and CFG 2.5.
+Startup history is measured; subsequent history comes from the raw plan.
 
-## GPU planner
+| Default schedule | Frame |
+|---|---:|
+| Request next plan | 25 |
+| Raw history | 40–49 |
+| Preview deadline | 39 |
+| Switch to new plan frame 0 | 50 |
+
+Ten preview frames plus one derivative sample leave **280 ms** for inference
+and transport. Missed deadlines stop tracking. There is no interpolation,
+smoothing or hold-last recovery; planned history alone does not correct drift.
+
+The server and generic bridge support `--switch-seconds` from 0.5 to 2.0 in
+20 ms increments and must match. For P frames, request at P−25, use history
+[P−10:P], and switch at P. The concrete ROS adapters currently use **1.0s**.
+
+## 1. GPU planner
+
+From the OMG-Lite checkout, with the downloaded inference bundle:
 
 ```bash
+export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/updated/38D"
 PYTHONPATH=src python -m omg.cli.realtime.planner_server \
-  --config /path/to/resolved_training_config.yaml \
-  --checkpoint /path/to/native50.ckpt --bind tcp://0.0.0.0:5571 --switch-seconds 1.0
+  --config "$OMG38_ARTIFACT_DIR/config.yaml" \
+  --checkpoint "$OMG38_ARTIFACT_DIR/sstep=075500.ckpt" \
+  --bind tcp://0.0.0.0:5571 --switch-seconds 1.0
 ```
 
-Strict checkpoint loading, architecture contract validation, history10,
-horizon100, 50 DDIM steps, CFG2.5. Native checkpoints carry their representation;
-Use the matching 38D checkpoint and statistics. No DiT skip/cache approximation is enabled.
+## 2. Orin validation
 
-## Orin bridge
+Follow [controller setup](../deployment/README.md). Source ROS and the external
+HoloMotion installation, preserving their Python paths. From OMG-Lite:
+
+```bash
+PYTHONPATH=src:$PYTHONPATH python deployment/shadow_native50.py \
+  --tracker /path/to/model_16200_dynamic_batch.onnx \
+  --connect tcp://GPU_HOST:5571 --text 'raise hands' \
+  --frames 500 --output outputs/shadow
+```
+
+This reads live sensors and records candidate actions without publishing motor
+commands. The output directory must be new. Pass this check and the isolated
+policy load/stop checks before a supervised physical trial.
+
+## 3. Controller integration
+
+`deployment/native50_policy_node.py` replaces the external policy node and
+requires the patched native controller. It retains native gains, mapping and
+remote arming: B requests motion; Y cancels or returns to velocity. The default
+250-frame episode requests native stop on completion. There is no automatic
+live launcher.
+
+For a separate preview-stream consumer, run:
 
 ```bash
 PYTHONPATH=src python -m omg.cli.realtime.holomotion_real_bridge \
-  --connect tcp://GPU_HOST:5571 --text 'walk forward' \
+  --connect tcp://GPU_HOST:5571 --text 'raise hands' \
   --publish-bind ipc:///tmp/omg-preview-v2 --switch-seconds 1.0
 ```
 
-The bridge waits for measured history from an **already armed** HoloMotion
-consumer. Initial inference happens outside the active tracking clock. During
-tracking, generation runs in a worker and the 50Hz clock never waits for it.
-A late plan or missed control tick terminates the stream; the consumer must
-revoke tracking on timeout. No hold-last-reference recovery is implemented.
-
-## HoloMotion consumer integration
-
-Import `deployment/holomotion_hook.py` into the existing Orin controller and call
-`run_armed_tracker` after its existing remote-B gate. Supply the initialized
-HoloMotion session/metadata/handles and these concrete controller callbacks:
-
-- `read_state()`: fresh `joint_pos[29]`, `joint_vel[29]` in G1 order,
-  pelvis `root_quat_wxyz[4]`, body `gyro[3]`; reject stale feedback.
-- `apply_action(action)`: existing ONNX-order action-to-PD/motor path.
-- `stop_tracking()`: existing disarm/stop path, always called on exit.
-- `measured_history[10,36]`: native50 startup history from the state estimator.
-  Unitree LowState alone has no root translation. Do not substitute nominal
-  height or planned root position and label it measured history.
-
-The adapter emits the same clipped policy action as the simulator (clip10,
-matching HoloMotion's configured action limit). It does not publish LowCmd or
-replace the robot controller's gains, joint mapping, arming or emergency stop.
-This hook must be integrated in that external controller; stock HoloMotion's
-legacy `obs65` subscriber is **not** compatible.
-
-Each Orin-local v2 packet contains the preceding sample, current sample, ten
-future samples and one derivative sample. The consumer computes the exact
-reference features used in simulation and builds observations from live state.
-Packets are ordered and age-checked against the same-host monotonic clock.
-No future frames are synthesized by repeating the current reference.
-
-## Verification boundary
-
-`tests/pipeline/test_native_schedule.py` checks scheduling, missed deadlines,
-preview derivative support and simulated30/50/70ms latency equivalence.
-`scripts/validation/native50_sim.py` exercises the deployed observation/action
-adapter with the same MuJoCo dynamics as the normal tracker. Actual network
-latency, Orin throughput, controller integration and physical acceptance still
-require deployment-side verification. Do not interpret simulated latency as
-measured inference speed.
-
-The concrete ROS/Orin adapters and pinned external-controller stop patch are
-in [`deployment/README.md`](../deployment/README.md). That document separates
-completed network/isolated checks from the still-pending shadow and physical
-acceptance gates. The native policy adapter is not yet hardware-qualified.
-
-Configurable-period validation (2026-10-21): 219 tests passed (one existing
-PyTorch scheduler deprecation warning). Schedule and ZMQ transport tests cover
-0.5, 0.76, 1.0 and 2.0 seconds; deployment preview parity covers simulated
-30/50/70/210ms inference delays. This validates scheduling and protocol behavior,
-not new motion-quality benchmarks or physical deployment acceptance.
-
+Integrate [`run_armed_tracker`](../deployment/holomotion_hook.py) after the
+controller's existing arming gate. Supply fresh G1 joint positions/velocities,
+pelvis quaternion, body gyro, measured startup `qpos36[10]`, and native
+apply-action/stop callbacks. LowState alone does not provide root translation.
+This is an alternative integration to the concrete policy node, not a second
+motor publisher. Legacy `obs65` consumers do not support the preview protocol.
