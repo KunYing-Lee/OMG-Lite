@@ -1,0 +1,42 @@
+_target_: omg.data.datamodule.GenerationDataModule
+limit_each_trainset: null
+train_subset_ratio: null
+rotation_representation: ${representation.rotation_representation}
+dataset_opts:
+  train:
+    omg_50hz_train:
+      include_body_positions: ${representation.include_body_positions}
+      _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
+      root: ${paths.materialized_root}/omg_lite_multimodal_50hz_v3_seq100_hist10_k1
+      source_repo_id: THU-MARS/OMG-Lite-Data
+      source_revision: 0cf9684b20ed4c4c4762b39256de63f22df62634
+      split: train
+  val:
+    omg_50hz_val:
+      include_body_positions: ${representation.include_body_positions}
+      _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
+      root: ${paths.materialized_root}/omg_lite_multimodal_50hz_v3_seq100_hist10_k1
+      source_repo_id: THU-MARS/OMG-Lite-Data
+      source_revision: 0cf9684b20ed4c4c4762b39256de63f22df62634
+      split: val
+  test:
+    omg_50hz_test:
+      include_body_positions: ${representation.include_body_positions}
+      _target_: omg.data.episode_cache.EpisodeCachedG1MotionDataset
+      root: ${paths.materialized_root}/omg_lite_multimodal_50hz_v3_seq100_hist10_k1
+      source_repo_id: THU-MARS/OMG-Lite-Data
+      source_revision: 0cf9684b20ed4c4c4762b39256de63f22df62634
+      split: test
+loader_opts:
+  train:
+    batch_size: 96
+    num_workers: 2
+    prefetch_factor: 2
+  val:
+    batch_size: 16
+    num_workers: 2
+    prefetch_factor: 1
+  test:
+    batch_size: 16
+    num_workers: 2
+    prefetch_factor: 1

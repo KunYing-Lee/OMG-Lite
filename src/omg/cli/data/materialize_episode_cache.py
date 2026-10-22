@@ -53,6 +53,18 @@ def _resolve_dataset(
     return dataset
 
 
+# Captions and cache frame/window offsets have their own canonical storage.
+# Keep only source linkage and condition semantics here.
+PROVENANCE_FIELDS = (
+    "episode_index", "sequence_name", "source_dataset", "segment_index",
+    "source_start_frame", "source_end_frame", "source_fps", "audio_feature_type", "has_text",
+)
+
+
+def _episode_provenance(episode: dict[str, Any]) -> dict[str, Any]:
+    return {key: episode[key] for key in PROVENANCE_FIELDS if key in episode}
+
+
 def write_episode_cache(
     dataset: LeRobotG1MotionDataset,
     *,
@@ -64,6 +76,9 @@ def write_episode_cache(
     max_episodes: int | None = None,
 ) -> dict[str, Any]:
     source_identity = {
+        "format": EpisodeCachedG1MotionDataset.FORMAT,
+        "use_audio": bool(getattr(dataset, "use_audio", False)),
+        "use_human_motion": bool(getattr(dataset, "use_human_motion", False)),
         "repo_id": str(dataset.repo_id),
         "revision": str(dataset.revision or ""),
     }
@@ -101,6 +116,7 @@ def write_episode_cache(
     episode_lengths: list[int] = []
     window_offsets = [0]
     captions: list[str] = []
+    provenance: list[dict[str, Any]] = []
     frame_count = 0
     shard_count = 0
     for shard_root in sorted((incomplete_root / "shards").glob("shard_*")):
@@ -108,6 +124,7 @@ def write_episode_cache(
         if not manifest_path.is_file():
             raise RuntimeError(f"Incomplete episode-cache shard without manifest: {shard_root}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        provenance.extend(_episode_provenance(ep) for ep in manifest["provenance"])
         lengths = [int(value) for value in manifest["episode_lengths"]]
         shard_captions = [str(value) for value in manifest["captions"]]
         if len(lengths) != len(shard_captions):
@@ -131,6 +148,7 @@ def write_episode_cache(
         device=device,
         max_episodes=remaining_episodes,
         episode_start=completed_episodes,
+        include_kinematics=False,
     )
     for group in tqdm(iterator, desc=f"episode-cache:{split}"):
         shard_root = incomplete_root / "shards" / f"shard_{shard_count:05d}"
@@ -138,7 +156,7 @@ def write_episode_cache(
         if shard_incomplete.exists():
             shutil.rmtree(shard_incomplete)
         shard_incomplete.mkdir()
-        frame_keys = ["qpos_36", "body_pos_w", "body_quat_w"]
+        frame_keys = ["qpos_36"]
         frame_keys.extend(key for key in ("audio_features", "has_audio", "human_motion", "has_human_motion") if key in group)
         for key in frame_keys:
             value = group[key].detach().cpu().numpy().astype(np.float32, copy=False)
@@ -148,6 +166,8 @@ def write_episode_cache(
         local_frame_offset = 0
         shard_lengths = []
         shard_captions = []
+        shard_provenance = [_episode_provenance(ep) for ep in group["episodes"]]
+        provenance.extend(shard_provenance)
         for episode in group["episodes"]:
             length = int(episode["data_end_row"]) - int(episode["data_start_row"])
             max_start = length - dataset.window_size
@@ -168,6 +188,7 @@ def write_episode_cache(
                     "frames": local_frame_offset,
                     "episode_lengths": shard_lengths,
                     "captions": shard_captions,
+                    "provenance": shard_provenance,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -188,6 +209,9 @@ def write_episode_cache(
     (incomplete_root / "captions.json").write_text(
         json.dumps(captions, ensure_ascii=False) + "\n",
         encoding="utf-8",
+    )
+    (incomplete_root / "provenance.json").write_text(
+        json.dumps(provenance, ensure_ascii=False) + "\n", encoding="utf-8",
     )
     summary = {
         "format": EpisodeCachedG1MotionDataset.FORMAT,

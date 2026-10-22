@@ -19,9 +19,9 @@ from omg.utils.rotation_conversions import standardize_quaternion
 
 
 class EpisodeCachedG1MotionDataset(Dataset):
-    """Read exact windows from frame-level episode kinematics caches."""
+    """Read exact windows from compact frame-level episode caches."""
 
-    FORMAT = "omg.episode_cache.g1_motion.v2"
+    FORMAT = "omg.episode_cache.g1_motion.v3"
 
     def __init__(
         self,
@@ -86,6 +86,9 @@ class EpisodeCachedG1MotionDataset(Dataset):
         self.captions = json.loads((self.split_root / "captions.json").read_text(encoding="utf-8"))
         if len(self.captions) != int(self.episode_lengths.shape[0]):
             raise ValueError("captions and episode metadata have different lengths")
+        self.episode_metadata = json.loads((self.split_root / "provenance.json").read_text(encoding="utf-8"))
+        if len(self.episode_metadata) != len(self.captions):
+            raise ValueError("Episode provenance and captions have different lengths")
         self.num_samples = int(self.window_offsets[-1])
         if limit_size is not None:
             self.num_samples = min(self.num_samples, int(limit_size))
@@ -105,7 +108,7 @@ class EpisodeCachedG1MotionDataset(Dataset):
         shard_root = self.split_root / "shards" / f"shard_{shard_id:05d}"
         loaded = {
             key: np.load(shard_root / f"{key}.npy", mmap_mode="r")
-            for key in ("qpos_36", "body_pos_w", "body_quat_w")
+            for key in ("qpos_36",)
         }
         optional_keys = []
         if self.use_audio:
@@ -136,7 +139,9 @@ class EpisodeCachedG1MotionDataset(Dataset):
         episode["qpos_36"][..., 3:7] = standardize_quaternion(
             F.normalize(episode["qpos_36"][..., 3:7], dim=-1)
         )
-        episode["body_quat_w"] = standardize_quaternion(F.normalize(episode["body_quat_w"], dim=-1))
+        fk = self.kinematics.forward_kinematics(episode["qpos_36"])
+        episode["body_pos_w"] = fk["body_pos_w"]
+        episode["body_quat_w"] = standardize_quaternion(F.normalize(fk["body_quat_w"], dim=-1))
         self._episode_cache[episode_index] = episode
         self._episode_cache.move_to_end(episode_index)
         while len(self._episode_cache) > self.episode_cache_size:
@@ -349,14 +354,15 @@ class EpisodeCachedG1MotionDataset(Dataset):
             "canon_root_pos": canon_root_pos[0],
             "canon_root_quat": canon_root_quat[0],
             "caption": caption,
-            "has_text": torch.tensor(bool(caption.strip()), dtype=torch.bool),
+            "has_text": torch.tensor(bool(self.episode_metadata[episode_index]["has_text"]), dtype=torch.bool),
             "mask": {
                 "valid": valid_mask,
                 "has_audio": has_audio,
                 "has_human_motion": has_human_motion,
             },
             "meta": {
-                "episode_index": episode_index,
+                **self.episode_metadata[episode_index],
+                "cache_episode_index": episode_index,
                 "window_start": start,
                 "split": self.split,
             },

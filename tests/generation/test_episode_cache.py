@@ -36,8 +36,6 @@ def test_episode_cache_maps_exact_windows_and_spans(tmp_path) -> None:
     body_quat = np.zeros((8, 30, 4), dtype=np.float32)
     body_quat[..., 0] = 1.0
     np.save(shard_root / "qpos_36.npy", qpos)
-    np.save(shard_root / "body_pos_w.npy", body_pos)
-    np.save(shard_root / "body_quat_w.npy", body_quat)
     np.savez(
         split_root / "episodes.npz",
         shard=np.asarray([0, 0], dtype=np.int32),
@@ -45,6 +43,7 @@ def test_episode_cache_maps_exact_windows_and_spans(tmp_path) -> None:
         length=np.asarray([5, 3], dtype=np.int32),
         window_offset=np.asarray([0, 3, 4], dtype=np.int64),
     )
+    (split_root / "provenance.json").write_text(json.dumps([{"has_text": True}, {"has_text": True}]))
     (split_root / "captions.json").write_text(json.dumps(["walk", "stand"]), encoding="utf-8")
     (split_root / "summary.json").write_text(
         json.dumps(
@@ -116,14 +115,14 @@ def test_episode_cache_writer_publishes_atomically(tmp_path) -> None:
         train_window_stride = 1
         codec = SimpleNamespace(canonical_frame_idx=1, rotation_representation="rot6d")
 
-        def iter_episode_kinematics_groups(self, *, max_frames, device, max_episodes, episode_start):
+        def iter_episode_kinematics_groups(self, *, max_frames, device, max_episodes, episode_start, include_kinematics):
             assert max_frames == 16
             assert max_episodes is None
             assert episode_start == 0
             yield {
                 "episodes": [
-                    {"data_start_row": 0, "data_end_row": 5, "segment_caption": "walk"},
-                    {"data_start_row": 5, "data_end_row": 8, "segment_caption": "stand"},
+                    {"data_start_row": 0, "data_end_row": 5, "segment_caption": "walk", "has_text": True},
+                    {"data_start_row": 5, "data_end_row": 8, "segment_caption": "stand", "has_text": True},
                 ],
                 "qpos_36": qpos.to(device),
                 "body_pos_w": body_pos.to(device),
@@ -143,6 +142,7 @@ def test_episode_cache_writer_publishes_atomically(tmp_path) -> None:
     assert summary["frames"] == 8
     assert summary["windows"] == 4
     assert not list(output_root.glob(".*.incomplete.*"))
+    assert not list(output_root.rglob("body_*.npy"))
     dataset = _open_cache(output_root)
     assert dataset[2]["qpos_36"][:, 0].tolist() == [2.0, 3.0, 4.0]
     report = inspect_episode_cache(output_root, "train")
@@ -182,7 +182,7 @@ def test_episode_cache_writer_resumes_completed_shards(tmp_path) -> None:
         def __init__(self, fail_after_first: bool) -> None:
             self.fail_after_first = fail_after_first
 
-        def iter_episode_kinematics_groups(self, *, max_frames, device, max_episodes, episode_start):
+        def iter_episode_kinematics_groups(self, *, max_frames, device, max_episodes, episode_start, include_kinematics):
             for episode_index in range(episode_start, 2):
                 qpos = torch.zeros(3, 36, device=device)
                 qpos[:, 0] = torch.arange(3, device=device) + episode_index * 3
@@ -196,6 +196,7 @@ def test_episode_cache_writer_resumes_completed_shards(tmp_path) -> None:
                             "data_start_row": episode_index * 3,
                             "data_end_row": episode_index * 3 + 3,
                             "segment_caption": f"episode {episode_index}",
+                            "has_text": True,
                         }
                     ],
                     "qpos_36": qpos,
@@ -227,5 +228,6 @@ def test_episode_cache_writer_resumes_completed_shards(tmp_path) -> None:
     )
     assert summary["episodes"] == 2
     assert summary["shards"] == 2
+    assert not list(output_root.rglob("body_*.npy"))
     dataset = _open_cache(output_root)
     assert dataset[1]["qpos_36"][:, 0].tolist() == [3.0, 4.0, 5.0]
