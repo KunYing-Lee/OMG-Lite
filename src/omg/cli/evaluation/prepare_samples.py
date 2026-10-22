@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections import defaultdict
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ import numpy as np
 from hydra import compose, initialize_config_dir
 from tqdm import tqdm
 
-from omg.benchmarks.protocol import benchmark_condition_cohorts
+from omg.benchmarks.protocol import DEFAULT_MANIFEST_DIR, DEFAULT_NUM_FRAMES, NATIVE_FPS, benchmark_condition_cohorts
 from omg.benchmarks.runners.common import (
     SampleRecord,
     _build_datasets,
@@ -121,13 +122,14 @@ def _write_manifest_summary(
     dataset_identity: dict[str, str],
 ) -> None:
     payload = {
-        "benchmark_sample_set": "mixed_modalities_all_v2",
+        "benchmark_sample_set": "native50",
         "sample_schema": "omg.benchmark.sample.v2",
         **dataset_identity,
         "data": args.data,
         "exp": args.exp,
         "split": args.split,
         "num_frames": args.num_frames,
+        "fps": NATIVE_FPS,
         "seed": args.seed,
         "conditions": summaries,
     }
@@ -135,27 +137,25 @@ def _write_manifest_summary(
 
 
 def _output_name(condition: str, *, args: argparse.Namespace, num_samples: int) -> str:
-    if args.output_name_suffix:
-        return f"{condition}_{args.split}_{int(num_samples)}{args.output_name_suffix}.jsonl"
-    return str(CONDITION_SPECS[condition]["output_name"])
+    return f"{condition}_{args.split}_{int(num_samples)}{args.output_name_suffix}.jsonl"
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare fixed mixed-modality benchmark sample manifests.")
-    parser.add_argument("--output_dir", default="outputs/benchmark_samples/mixed_modalities_all_v2")
-    parser.add_argument("--exp", default="100m")
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Prepare fixed native 50Hz benchmark sample manifests.")
+    parser.add_argument("--output_dir", default=str(DEFAULT_MANIFEST_DIR))
+    parser.add_argument("--exp", default="50m")
     parser.add_argument("--data", default="omg_data_50hz")
     parser.add_argument("--split", choices=["val", "test"], default="test")
-    parser.add_argument("--num_frames", type=int, default=100)
+    parser.add_argument("--num_frames", type=int, default=DEFAULT_NUM_FRAMES)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--text_samples", type=int, default=1024)
     parser.add_argument("--audio_samples", type=int, default=512)
     parser.add_argument("--humanref_samples", type=int, default=512)
-    parser.add_argument("--conditions", nargs="+", choices=sorted(CONDITION_SPECS), default=list(CONDITION_SPECS))
+    parser.add_argument("--conditions", nargs="+", choices=sorted(CONDITION_SPECS), default=["text"])
     parser.add_argument("--output-name-suffix", default="", help="Optional suffix for generated sample filenames, e.g. _120f.")
     parser.add_argument("--summary-name", default="manifest_summary.json", help="Summary JSON filename inside output_dir.")
     parser.add_argument("overrides", nargs="*")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -216,6 +216,7 @@ def main() -> None:
         summaries[condition] = {
             "path": str(path.resolve()),
             "num_samples": len(records),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "candidate_counts": candidate_counts,
             "selected_counts": selected_counts,
             "cohorts": {name: list(source_datasets) for name, source_datasets in cohorts.items()},

@@ -21,6 +21,9 @@ from omg.benchmarks.runners.common import (
 from omg.benchmarks.metrics import multimodality
 from omg.benchmarks.protocol import benchmark_condition_cohorts, benchmark_source_datasets
 from omg.benchmarks.runners.text import (
+    _parse_args,
+    _real_motion_metrics,
+    _reference_records,
     _retrieval_distances_and_ranks,
     _sample_metric_rows,
     _sample_rankings,
@@ -270,3 +273,67 @@ def test_multimodality_metric_from_embeddings():
     assert summary["mean"] == pytest.approx(3.5)
     assert summary["min"] == pytest.approx(2.0)
     assert summary["max"] == pytest.approx(5.0)
+
+
+@pytest.mark.parametrize("seed", [0, 17])
+def test_gt_summary_and_per_sample_retrieval_share_candidates(seed):
+    rng = np.random.default_rng(4)
+    text = rng.normal(size=(64, 12))
+    motion = text + rng.normal(scale=1.5, size=text.shape)
+    datasets = ["a"] * 32 + ["b"] * 32
+    expected = _text_retrieval_summary(motion, text, dataset_names=datasets, seed=seed)
+    original_order = _text_retrieval_summary(motion, text, stratified=False)
+    assert expected["r_precision"] != original_order["r_precision"]
+    real = _real_motion_metrics(motion, motion, text, dataset_names=datasets, seed=seed)
+    assert real["r_precision_real"] == expected["r_precision"]
+    assert real["text_real"] == expected
+    rows = _sample_metric_rows(
+        captions=[str(i) for i in range(64)], dataset_names=datasets,
+        dataset_indices=list(range(64)), physical_values={},
+        generated_embeddings=motion, reference_embeddings=motion,
+        text_embeddings=text, seed=seed,
+    )
+    for k in range(1, 4):
+        assert np.mean([r[f"reference_r_at_{k}"] for r in rows]) == expected["r_precision"][k-1]
+        assert np.mean([r[f"generated_r_at_{k}"] for r in rows]) == expected["r_precision"][k-1]
+
+
+def test_pinned_reference_never_resamples(monkeypatch):
+    from argparse import Namespace
+    from omg.benchmarks.runners import text
+    rows = [object(), object()]
+    monkeypatch.setattr(text, "_load_sample_records", lambda path: rows)
+    monkeypatch.setattr(text, "_resolve_sample_records", lambda records, datasets: records)
+    def forbidden(*args):
+        raise AssertionError("Pinned references must not be sampled")
+    monkeypatch.setattr(text, "_select_sample_records", forbidden)
+    args = Namespace(reference_samples_path="fixed.jsonl", num_reference_motions=2, seed=0)
+    assert _reference_records(args, {}) is rows
+    args.num_reference_motions = 3
+    with pytest.raises(ValueError, match="Pinned reference manifest"):
+        _reference_records(args, {})
+
+
+def test_native_text_protocol_defaults(tmp_path):
+    from omg.cli.evaluation.prepare_samples import _parse_args as prepare_args, _output_name
+    evaluator = tmp_path / "evaluator.pt"
+    evaluator.touch()
+    args = _parse_args(["--ckpt_path", "model.ckpt", "--evaluator_checkpoint", str(evaluator)])
+    prepared = prepare_args([])
+    assert args.exp == prepared.exp == "50m"
+    assert args.num_frames == prepared.num_frames == 100
+    assert args.batch_size == 32 and args.seed == 0
+    assert args.cfg_scale == 2.5 and args.enable_text_metrics and args.text_only
+    assert args.reference_samples_path == args.samples_path
+    assert prepared.conditions == ["text"]
+    assert Path(prepared.output_dir) / _output_name("text", args=prepared, num_samples=1024) == Path(args.samples_path)
+    prepared.split = "val"
+    assert _output_name("text", args=prepared, num_samples=64) == "text_val_64.jsonl"
+    with pytest.raises(ValueError, match="requires --reference-samples-path"):
+        _parse_args(["--ckpt_path", "model.ckpt", "--split", "val"])
+
+
+def test_reference_requires_fixed_manifest():
+    from argparse import Namespace
+    with pytest.raises(ValueError, match="fixed --reference-samples-path"):
+        _reference_records(Namespace(reference_samples_path=None), {})

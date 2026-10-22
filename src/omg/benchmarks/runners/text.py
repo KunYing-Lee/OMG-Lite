@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -24,6 +25,7 @@ from omg.benchmarks.metrics import (
 )
 from omg.benchmarks.runners.common import (
     BenchmarkResult,
+    DEFAULT_EVALUATOR_CHECKPOINT,
     SampleRecord,
     _build_datasets,
     _cfg_output_name,
@@ -44,14 +46,13 @@ from omg.benchmarks.runners.common import (
     _physical_values,
     _qpos_to_body_positions,
     _resolve_sample_records,
-    _sample_file_path,
     _save_json,
     _summary_stats,
     _validate_sample_records,
     _write_jsonl,
     _write_sample_records,
 )
-from omg.benchmarks.protocol import benchmark_source_datasets
+from omg.benchmarks.protocol import DEFAULT_NUM_FRAMES, DEFAULT_TEXT_MANIFEST, NATIVE_FPS
 from omg.benchmarks.runners.tracker_executed import (
     add_tracker_executed_args,
     run_tracker_executed_benchmark,
@@ -177,6 +178,18 @@ def _encode_text_embeddings(
     return torch.cat(chunks, dim=0).numpy()
 
 
+def _reference_records(args: argparse.Namespace, datasets: dict[str, Any]) -> list[SampleRecord]:
+    if args.reference_samples_path is None:
+        raise ValueError("A fixed --reference-samples-path is required for a different reference split")
+    records = _resolve_sample_records(_load_sample_records(Path(args.reference_samples_path)), datasets)
+    if len(records) != int(args.num_reference_motions):
+        raise ValueError(
+            f"Pinned reference manifest has {len(records)} rows, "
+            f"but --num-reference-motions={args.num_reference_motions}"
+        )
+    return records
+
+
 def _transition_chunk_length(model: Any, args: argparse.Namespace) -> int:
     return int(args.transition_chunk_length or getattr(model.representation, "sequence_length"))
 
@@ -221,6 +234,9 @@ def _real_motion_metrics(
     distribution_reference_embeddings: np.ndarray,
     eval_embeddings: np.ndarray,
     text_embeddings: np.ndarray | None,
+    *,
+    dataset_names: list[str] | None = None,
+    seed: int = 0,
 ) -> dict[str, Any]:
     distribution_reference = np.asarray(distribution_reference_embeddings)
     eval_motion = np.asarray(eval_embeddings)
@@ -242,7 +258,10 @@ def _real_motion_metrics(
         result["motion_fid_split_half"] = fid
         result["motion_kid_split_half"] = kid
     if text_embeddings is not None:
-        reference_text = _text_retrieval_summary(eval_motion, text_embeddings)
+        reference_text = _text_retrieval_summary(
+            eval_motion, text_embeddings, dataset_names=dataset_names,
+            stratified=True, seed=seed,
+        )
         result.update(
             {
                 "matching_score_real": reference_text["matching_score"],
@@ -518,6 +537,7 @@ def _sample_metric_rows(
     reference_embeddings: np.ndarray,
     text_embeddings: np.ndarray | None,
     transition_values: dict[str, np.ndarray] | None = None,
+    seed: int = 0,
 ) -> list[dict[str, Any]]:
     generated_paired_distances = reference_paired_distances = None
     generated_rank_by_index: dict[int, int] = {}
@@ -530,12 +550,14 @@ def _sample_metric_rows(
             text_embeddings,
             dataset_names=dataset_names,
             stratified=True,
+            seed=seed,
         )
         reference_retrieval = _batched_retrieval_metrics(
             reference_embeddings,
             text_embeddings,
             dataset_names=dataset_names,
             stratified=True,
+            seed=seed,
         )
         generated_ranks = generated_retrieval["ranks"]
         reference_ranks = reference_retrieval["ranks"]
@@ -691,7 +713,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--ckpt_path", default=None)
     parser.add_argument("--ckpts", nargs="+", default=None)
-    parser.add_argument("--exp", required=True)
+    parser.add_argument("--exp", default="50m")
     parser.add_argument("--data", default="omg_data_50hz")
     parser.add_argument("--output_dir", default=None)
     parser.add_argument("--split", choices=["train", "val", "test"], default="test")
@@ -713,7 +735,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Number of real motions sampled from --reference-split for FID/KID; defaults to --num-texts.",
     )
-    parser.add_argument("--batch-size", "--batch_size", dest="batch_size", type=int, default=64)
+    parser.add_argument("--batch-size", "--batch_size", dest="batch_size", type=int, default=32)
     parser.add_argument("--datasets", nargs="+", default=None)
     parser.add_argument(
         "--reference-datasets",
@@ -721,9 +743,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Exact omg/dataset names for --reference-split. Required only when restricting a different split.",
     )
-    parser.add_argument("--num_frames", type=int, default=120)
+    parser.add_argument("--num_frames", type=int, default=DEFAULT_NUM_FRAMES)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--cfg_scale", type=float, default=None)
+    parser.add_argument("--cfg_scale", type=float, default=2.5)
     parser.add_argument(
         "--cfg_scales",
         nargs="+",
@@ -735,17 +757,22 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["qpos_36", "motion_features", "body_link_pos_local", "body_pos_local"],
         default="body_pos_local",
     )
-    parser.add_argument("--evaluator_checkpoint", required=True)
-    parser.add_argument("--samples_path", default=None)
+    parser.add_argument("--evaluator_checkpoint", default=DEFAULT_EVALUATOR_CHECKPOINT)
+    parser.add_argument("--samples_path", default=str(DEFAULT_TEXT_MANIFEST))
+    parser.add_argument(
+        "--reference-samples-path", "--reference_samples_path",
+        dest="reference_samples_path", default=None,
+        help="Real-motion manifest for FID/KID; uses --samples_path when both splits match.",
+    )
     parser.add_argument("--contact_height_threshold", type=float, default=0.12)
     parser.add_argument("--contact_penetration_tolerance", type=float, default=0.02)
     parser.add_argument("--transition-metrics", "--transition_metrics", dest="transition_metrics", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--transition-chunk-length", "--transition_chunk_length", dest="transition_chunk_length", type=int, default=None)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
-    parser.add_argument("--enable_text_metrics", action="store_true")
+    parser.add_argument("--enable_text_metrics", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--t5_3b_model", default=DEFAULT_T5_3B_MODEL)
     parser.add_argument("--text_cache_dir", default=DEFAULT_TEXT_CACHE_DIR)
-    parser.add_argument("--text_batch_size", type=int, default=16)
+    parser.add_argument("--text_batch_size", type=int, default=32)
     parser.add_argument(
         "--text-only",
         "--text_only",
@@ -763,6 +790,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Additional Hydra overrides, e.g. model.text_encoder.model_name=models/t5-base-local",
     )
     args = parser.parse_args(argv)
+    if args.reference_samples_path is None and args.reference_split == args.split:
+        args.reference_samples_path = args.samples_path
+    if args.reference_samples_path is None:
+        raise ValueError("A different --reference-split requires --reference-samples-path")
     if args.ckpts is None:
         if args.ckpt_path is None:
             raise ValueError("Specify --ckpts or --ckpt_path")
@@ -1036,7 +1067,10 @@ def _run_single_benchmark(
         raise ValueError(
             f"Text embedding count mismatch: {text_embeddings.shape[0]} != {generated_embeddings.shape[0]}"
         )
-    real_motion_metrics = _real_motion_metrics(distribution_reference_embeddings, reference_embeddings, text_embeddings)
+    real_motion_metrics = _real_motion_metrics(
+        distribution_reference_embeddings, reference_embeddings, text_embeddings,
+        dataset_names=dataset_names, seed=int(args.seed),
+    )
 
     embedding_metrics = _embedding_distribution_metrics(distribution_reference_embeddings, generated_embeddings)
     embedding_metrics.update(
@@ -1104,6 +1138,7 @@ def _run_single_benchmark(
         reference_embeddings=reference_embeddings,
         text_embeddings=text_embeddings,
         transition_values=transition_values,
+        seed=int(args.seed),
     )
     sample_rankings = _sample_rankings(sample_rows)
     tracker_executed = run_tracker_executed_benchmark(
@@ -1150,6 +1185,10 @@ def _run_single_benchmark(
         "split": args.split,
         "num_samples": len(records),
         "num_frames": int(args.num_frames),
+        "fps": NATIVE_FPS,
+        "history_frames": int(model.representation.num_prev_states),
+        "samples_sha256": hashlib.sha256((output_dir / "samples.jsonl").read_bytes()).hexdigest(),
+        "reference_samples_sha256": hashlib.sha256((output_dir / "reference_samples.jsonl").read_bytes()).hexdigest(),
         "reference_frames": int(reference_qpos.shape[1]),
         "embedding_frames": embedding_frames,
         "reference_split": args.reference_split,
@@ -1284,6 +1323,9 @@ def _write_generation_summary(
             "ckpts": [str(Path(path).resolve()) for path in args.ckpts],
             "datasets": list(datasets.keys()),
             "num_texts": args.num_texts,
+            "fps": NATIVE_FPS,
+            "num_frames": args.num_frames,
+            "seed": args.seed,
             "reference_split": args.reference_split,
             "num_reference_motions": args.num_reference_motions,
             "batch_size": args.batch_size,
@@ -1295,7 +1337,7 @@ def _write_generation_summary(
             "text_batch_size": args.text_batch_size,
             "metric_definition": (
                 "FID(seq) and KID(seq) compare sequence-level evaluator embeddings against real motions "
-                "sampled from --reference-split, which defaults to the training split. "
+                "taken from --reference-samples-path when supplied; --reference-split defaults to test. "
                 "The Real motions row compares eval real motions against this reference baseline; "
                 "model rows compare generated motions against the same reference baseline."
             ),
@@ -1303,7 +1345,7 @@ def _write_generation_summary(
                 "R-precision is computed with fixed batch32 retrieval candidate sets. "
                 "Retrieval batches are stratified by dataset when dataset metadata is available. "
                 "Matching and MultiModal Dist are paired embedding distances. Text metrics are computed when "
-                "--enable_text_metrics is provided; --t5_3b_model and --text_cache_dir default to the paths above."
+                "enabled (the default); --t5_3b_model and --text_cache_dir default to the paths above."
             ),
             "multimodality": (
                 "Computed only when --multimodality_repeats > 1 by sampling each text multiple times "
@@ -1337,39 +1379,25 @@ def main(argv: list[str] | None = None) -> None:
             ],
         )
 
-    sample_path = _sample_file_path(output_dir, args.samples_path)
-    if args.samples_path is not None and not sample_path.exists():
-        raise FileNotFoundError(f"--samples_path does not exist: {sample_path}")
-    records = None
-    if sample_path.exists():
-        records = _load_sample_records(sample_path)
-        print(f"[INFO] Loaded {len(records)} sample records from {sample_path.resolve()}")
-    dataset_include = args.datasets if args.datasets is not None else (
-        _dataset_names_from_records(records)
-        if records is not None
-        else benchmark_source_datasets("text", args.split)
-    )
+    sample_path = Path(args.samples_path)
+    if not sample_path.is_file():
+        raise FileNotFoundError(
+            f"Fixed sample manifest does not exist: {sample_path}. "
+            "Run python -m omg.cli.evaluation.prepare_samples first."
+        )
+    records = _load_sample_records(sample_path)
+    if len(records) != args.num_texts:
+        raise ValueError(f"Pinned generation manifest has {len(records)} rows, but --num-texts={args.num_texts}")
+    dataset_include = args.datasets or _dataset_names_from_records(records)
     datasets = _build_datasets(cfg, args.split, include=dataset_include, num_frames=args.num_frames)
-    reference_include = args.reference_datasets
-    if reference_include is None and args.reference_split == args.split:
-        reference_include = dataset_include
-    elif reference_include is None:
-        reference_include = benchmark_source_datasets("text", args.reference_split)
+    reference_include = args.reference_datasets or _dataset_names_from_records(
+        _load_sample_records(Path(args.reference_samples_path))
+    )
     reference_datasets = _build_datasets(
-        cfg,
-        args.reference_split,
-        include=reference_include,
-        num_frames=args.num_frames,
+        cfg, args.reference_split, include=reference_include, num_frames=args.num_frames,
     )
-    if records is not None:
-        records = _resolve_sample_records(records, datasets)
-    if records is None:
-        records = _select_sample_records(datasets, args.num_texts, args.seed)
-    reference_records = _select_sample_records(
-        reference_datasets,
-        int(args.num_reference_motions),
-        int(args.seed),
-    )
+    records = _resolve_sample_records(records, datasets)
+    reference_records = _reference_records(args, reference_datasets)
     _validate_sample_records(records, datasets)
     _validate_sample_records(reference_records, reference_datasets)
     if args.enable_text_metrics and len(records) % TEXT_RETRIEVAL_BATCH_SIZE != 0:

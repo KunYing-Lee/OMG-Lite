@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+NATIVE_FPS = 50
+DEFAULT_NUM_FRAMES = 100
+DEFAULT_MANIFEST_DIR = Path("outputs/benchmark_samples/native50")
+DEFAULT_TEXT_MANIFEST = DEFAULT_MANIFEST_DIR / "text_test_1024.jsonl"
+
 
 BENCHMARK_COHORT_FAMILIES = {
     "text": {
