@@ -326,6 +326,10 @@ def test_lerobot_benchmark_view_resolves_complete_identity(tmp_path: Path) -> No
         "source_end_frame": 7,
     }
     assert view.resolve_identity(identity) == 0
+    with pytest.raises(ValueError, match="split"):
+        view.resolve_identity({**identity, "split": "val"})
+    with pytest.raises(KeyError, match="sample not found"):
+        view.resolve_identity({**identity, "num_frames": 100})
     assert view.sample_has_condition(0, "text", num_frames=3)
     assert view.sample_has_condition(0, "text", num_frames=6)
     assert view.sample_has_condition(0, "audio", num_frames=3)
