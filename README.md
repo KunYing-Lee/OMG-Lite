@@ -7,7 +7,7 @@
   <p>
     <a href="https://github.com/Tsinghua-MARS-Lab/OMG"><img src="https://img.shields.io/badge/GitHub-Original_OMG-181717?logo=github" alt="Original OMG"></a>
     <a href="https://tsinghua-mars-lab.github.io/OMG/"><img src="https://img.shields.io/badge/Website-Page-Green" alt="Project Page"></a>
-    <a href="https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model-38D-FFD21E" alt="38D Checkpoint"></a>
+    <a href="https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/38D"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model-38D-FFD21E" alt="38D Checkpoint"></a>
     <a href="docs/realtime_g1.md"><img src="https://img.shields.io/badge/Docs-Deployment-007EC6" alt="Deployment"></a>
   </p>
 </div>
@@ -36,14 +36,14 @@ See [Installation](docs/installation.md) for dependencies.
 
 ## 2. Download and Generate
 
-Download the [38D / 50 Hz inference bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D):
+Download the [38D / 50 Hz inference bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/38D):
 
 ```bash
 python - <<'PY'
 from huggingface_hub import snapshot_download
-snapshot_download("THU-MARS/OMG", allow_patterns=["checkpoints/updated/38D/*"], local_dir="hf-artifacts")
+snapshot_download("THU-MARS/OMG", allow_patterns=["checkpoints/38D/*"], local_dir="hf-artifacts")
 PY
-python hf-artifacts/checkpoints/updated/38D/infer.py \
+python hf-artifacts/checkpoints/38D/infer.py \
   --text 'walk forward' --output outputs/walk.npz
 ```
 
@@ -68,7 +68,7 @@ Download [HoloMotion](https://github.com/HorizonRobotics/HoloMotion) tracking
 artifacts separately. With the inference bundle above:
 
 ```bash
-export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/updated/38D"
+export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/38D"
 python -m omg.cli.pipeline.main \
   --config "$OMG38_ARTIFACT_DIR/config.yaml" \
   --checkpoint "$OMG38_ARTIFACT_DIR/sstep=075500.ckpt" \

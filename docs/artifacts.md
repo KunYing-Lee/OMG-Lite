@@ -1,6 +1,6 @@
 # Released inference artifacts
 
-Use the [38D / 50Hz bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/updated/38D).
+Use the [38D / 50Hz bundle](https://huggingface.co/THU-MARS/OMG/tree/main/checkpoints/38D).
 The best-validation checkpoint is `sstep=075500.ckpt`, SHA256
 `8bdd19cc6a47131dacb8f29a2a440c6a3a405dfcd335ecfffc3054828bd59fe7`.
 
