@@ -33,7 +33,7 @@ The server and generic bridge support `--switch-seconds` from 0.5 to 2.0 in
 From the OMG-Lite checkout, with the downloaded inference bundle:
 
 ```bash
-export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/updated/38D"
+export OMG38_ARTIFACT_DIR="$PWD/hf-artifacts/checkpoints/38D"
 PYTHONPATH=src python -m omg.cli.realtime.planner_server \
   --config "$OMG38_ARTIFACT_DIR/config.yaml" \
   --checkpoint "$OMG38_ARTIFACT_DIR/sstep=075500.ckpt" \
