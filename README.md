@@ -20,6 +20,21 @@ in a **38D pose space**, with an optimized generation–tracking deployment pipe
 - **Shared sync/async pipeline:** fixed-time plan switching, ten-frame tracker
   preview, and a separate async planner process.
 
+<table>
+  <tr>
+    <td align="center" width="33%"><a href="https://huggingface.co/datasets/AaronLeeky/OMG-Lite-demos/resolve/main/squat_0-4s_1080p.mp4"><img src="docs/media/squat.gif" alt="Squat down and stand up" width="100%"></a><br>Squat down and stand up</td>
+    <td align="center" width="33%"><a href="https://huggingface.co/datasets/AaronLeeky/OMG-Lite-demos/resolve/main/arms_side_0-4s_1080p.mp4"><img src="docs/media/arms_side.gif" alt="Raise both arms sideways" width="100%"></a><br>Raise both arms sideways</td>
+    <td align="center" width="33%"><a href="https://huggingface.co/datasets/AaronLeeky/OMG-Lite-demos/resolve/main/backward_0-10s_1080p.mp4"><img src="docs/media/backward.gif" alt="Walk backward" width="100%"></a><br>Walk backward</td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><a href="https://huggingface.co/datasets/AaronLeeky/OMG-Lite-demos/resolve/main/side_left_0-10s_1080p.mp4"><img src="docs/media/side_left.gif" alt="Take steps to the left" width="100%"></a><br>Take steps to the left</td>
+    <td align="center" width="33%"><a href="https://huggingface.co/datasets/AaronLeeky/OMG-Lite-demos/resolve/main/punch_0-10s_1080p.mp4"><img src="docs/media/punch.gif" alt="Throw alternating punches" width="100%"></a><br>Throw alternating punches</td>
+    <td align="center" width="33%"><a href="https://huggingface.co/datasets/AaronLeeky/OMG-Lite-demos/resolve/main/dance_2-6s_1080p.mp4"><img src="docs/media/dance.gif" alt="Dance" width="100%"></a><br>Dance</td>
+  </tr>
+</table>
+
+<p align="center"><sub>Sync-mode simulation · Click a preview for 1080p / 50 fps video.</sub></p>
+
 ## 1. Install
 
 ```bash
