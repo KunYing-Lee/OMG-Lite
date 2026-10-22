@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 
@@ -88,10 +90,15 @@ class GuidedDiffusion(nn.Module):
         logit_normal_std: float = 1.0,
     ):
         super().__init__()
-        if sampler != "ddim":
+        if sampler not in {"ddim", "dpmpp_2m"}:
             raise ValueError(f"Unsupported sampler: {sampler}")
         if objective != "pred_x0":
             raise ValueError("GuidedDiffusion is configured for x0 prediction")
+        if sampler == "dpmpp_2m" and ddim_eta != 0.0:
+            raise ValueError("dpmpp_2m is deterministic and requires ddim_eta=0")
+        if sampler == "dpmpp_2m" and zero_terminal_snr:
+            raise ValueError("dpmpp_2m currently requires finite terminal log-SNR")
+        self.sampler = str(sampler)
         self.timesteps = int(timesteps)
         self.objective = str(objective)
         self.train_timestep_respacing = str(train_timestep_respacing)
@@ -120,9 +127,16 @@ class GuidedDiffusion(nn.Module):
 
         train_steps = _space_timesteps(self.timesteps, self.train_timestep_respacing)
         sample_steps = _space_timesteps(self.timesteps, self.test_timestep_respacing)
+        if self.sampler == "dpmpp_2m" and len(sample_steps) == 1:
+            sample_steps = [self.timesteps - 1]
         _, train_map = _spaced_betas(base_betas, train_steps)
         sample_betas, sample_map = _spaced_betas(base_betas, sample_steps)
         sample_alphas_cumprod = torch.cumprod(1.0 - sample_betas, dim=0)
+        if self.sampler == "dpmpp_2m":
+            # Respaced beta can round to 1 for large cosine jumps in float32.
+            # Read the original cumulative schedule directly instead.
+            sample_alphas_cumprod = base_alphas_cumprod.index_select(0, sample_map)
+            self._dpmpp_alpha_bars = tuple(sample_alphas_cumprod.double().tolist())
         self.register_buffer("train_timestep_map", train_map, persistent=False)
         self.register_buffer("sample_timestep_map", sample_map, persistent=False)
         self.register_buffer("sample_alphas_cumprod", sample_alphas_cumprod, persistent=False)
@@ -131,6 +145,49 @@ class GuidedDiffusion(nn.Module):
             torch.cat([torch.ones(1, dtype=sample_alphas_cumprod.dtype), sample_alphas_cumprod[:-1]]),
             persistent=False,
         )
+
+    def _sample_dpmpp_2m(
+        self, denoiser, x, conditions, valid_mask, null_conditions, scale, cfg_branches,
+    ):
+        """Deterministic DPM-Solver++(2M), midpoint, on the existing discrete grid.
+
+        First-order startup and final denoise-to-zero avoid undefined multistep
+        ratios at the endpoints. History is local to each sampling invocation.
+        No clipping/thresholding is applied to normalized motion features.
+        """
+        # Compute scalar schedule coefficients outside mixed precision. In
+        # particular, cosine's terminal alpha must not round to zero in fp16.
+        alpha_bars = self._dpmpp_alpha_bars
+        if not alpha_bars or any(not 0.0 < a < 1.0 for a in alpha_bars):
+            raise ValueError("dpmpp_2m requires 0 < alpha_bar < 1 at all sample steps")
+        previous_x0 = None
+        previous_lambda = None
+        output_dtype = x.dtype
+        work_dtype = torch.float64 if x.dtype == torch.float64 else torch.float32
+        x = x.to(work_dtype)
+        for step in range(len(alpha_bars) - 1, -1, -1):
+            t_index = torch.full((x.shape[0],), step, device=x.device, dtype=torch.long)
+            x0 = self._predict_x0_with_cfg(
+                denoiser, x.to(output_dtype), t_index, conditions, valid_mask,
+                null_conditions, scale, cfg_branches=cfg_branches,
+            ).to(work_dtype)
+            if step == 0:
+                x = x0
+            else:
+                alpha = math.sqrt(alpha_bars[step])
+                sigma = math.sqrt(1.0 - alpha_bars[step])
+                alpha_next = math.sqrt(alpha_bars[step - 1])
+                sigma_next = math.sqrt(1.0 - alpha_bars[step - 1])
+                lam = math.log(alpha / sigma)
+                h = math.log(alpha_next / sigma_next) - lam
+                estimate = x0
+                if previous_x0 is not None:
+                    r = (lam - previous_lambda) / h
+                    estimate = x0 + (x0 - previous_x0) / (2.0 * r)
+                x = (sigma_next / sigma) * x - alpha_next * math.expm1(-h) * estimate
+                previous_x0, previous_lambda = x0, lam
+            x = x.masked_fill(~valid_mask.unsqueeze(-1), 0.0)
+        return x.to(output_dtype)
 
     def _sample_train_indices(self, batch_size: int, device: torch.device) -> torch.Tensor:
         return sample_timesteps(
@@ -262,6 +319,11 @@ class GuidedDiffusion(nn.Module):
         else:
             valid_mask = valid_mask.to(device=ref.device, dtype=torch.bool)
         scale = self.cfg_scale if cfg_scale is None else float(cfg_scale)
+
+        if self.sampler == "dpmpp_2m":
+            return self._sample_dpmpp_2m(
+                denoiser, x, conditions, valid_mask, null_conditions, scale, cfg_branches,
+            )
 
         for step in range(self.sample_alphas_cumprod.numel() - 1, -1, -1):
             t_index = torch.full((batch_size,), step, device=ref.device, dtype=torch.long)

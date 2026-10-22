@@ -52,7 +52,10 @@ class CheckpointPlanner:
             or self.model.diffusion_target != "future"
         ):
             raise ValueError("Pipeline requires text-only future prediction")
-        if self.model.diffusion.sample_timestep_map.numel() != 50:
+        if (
+            self.model.diffusion.sample_timestep_map.numel() != 50
+            or getattr(self.model.diffusion, "sampler", "ddim") != "ddim"
+        ):
             raise ValueError("Pipeline requires 50 DDIM steps")
 
     @torch.inference_mode()

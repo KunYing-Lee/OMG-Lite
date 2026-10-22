@@ -495,6 +495,7 @@ def build_export_metadata(
         "diffusion_type": diffusion_name,
         "diffusion_target": diffusion_target,
         "objective": str(getattr(diffusion, "objective", "")),
+        "sampler": str(getattr(diffusion, "sampler", "ddim")),
         "ddim_eta": float(getattr(diffusion, "ddim_eta", 0.0)),
         "cfg_scale": float(getattr(diffusion, "cfg_scale", 1.0)),
         "sample_timestep_map": _to_list(diffusion.sample_timestep_map),

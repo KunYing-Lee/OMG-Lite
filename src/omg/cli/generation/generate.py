@@ -959,6 +959,8 @@ def main() -> None:
             left_ghost_alpha=args.overlay_gt_alpha,
         )
     metadata = {
+        "sampler": getattr(model.diffusion, "sampler", "ddim"),
+        "sampling_timesteps": model.diffusion.sample_timestep_map.cpu().tolist(),
         "ckpt_path": str(Path(args.ckpt_path).resolve()),
         "exp": args.exp,
         "output_tag": output_tag,

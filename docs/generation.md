@@ -14,3 +14,8 @@ planning. Async errors on missed wall-clock deadlines.
 Standalone generation remains available through `omg.cli.generation.generate`.
 ONNX export remains an artifact tool, but the retired multi-mode ONNX pipeline,
 DiT skipping and diffusion continuation scheduler are not deployment paths.
+
+## Experimental few-step sampler
+
+See [DPM-Solver++ sampling](dpm-solver.md) for the opt-in `dpmpp_2m` sampler,
+reference tests and paired native50 checkpoint benchmark.
