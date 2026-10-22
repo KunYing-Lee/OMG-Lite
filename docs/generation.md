@@ -14,3 +14,6 @@ planning. Async errors on missed wall-clock deadlines.
 Standalone generation remains available through `omg.cli.generation.generate`.
 ONNX export remains an artifact tool, but the retired multi-mode ONNX pipeline,
 DiT skipping and diffusion continuation scheduler are not deployment paths.
+
+Videos use `holomotion` for generated/raw reference motion and the tracker’s
+original `tracker_native` scene for execution. `--video` records both side by side.

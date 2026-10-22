@@ -26,7 +26,7 @@ class SimStreamConfig:
     camera_elevation: float = -18.0
     kinematics_path: str | Path = "assets/robots/g1/g1_kinematics.json"
     urdf_path: str | Path = "assets/robots/g1/g1_29dof.urdf"
-    scene_preset: str = "studio"
+    scene_preset: str = "holomotion"
 
 
 def parse_host_port(bind: str) -> tuple[str, int]:

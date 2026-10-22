@@ -639,7 +639,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--camera_view", choices=["iso", "side", "both"], default="iso")
     parser.add_argument("--follow_mode", choices=["none", "xy", "xyz"], default="xy")
-    parser.add_argument("--scene_preset", choices=["minimal", "studio"], default="studio")
+    parser.add_argument("--scene_preset", choices=["holomotion"], default="holomotion")
     parser.add_argument("--title", default="G1 Motion")
     parser.add_argument("--legacy-attention-contract", choices=["none", "cross-only", "self-only", "self-and-cross"])
     parser.add_argument("overrides", nargs="*", help="Additional Hydra overrides, e.g. data=... model.text_encoder.model_name=...")

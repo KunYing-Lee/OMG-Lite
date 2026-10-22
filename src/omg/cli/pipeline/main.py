@@ -76,6 +76,8 @@ def main():
                 np.asarray(runner.executed_qpos_36),
                 out / "comparison.mp4",
                 fps=50,
+                right_scene_preset="tracker_native",
+                camera_distance_scale=1.3,
                 left_title="Raw reference",
                 right_title="Tracker execution",
                 overlay_lines=[args.text, f"request{schedule.request_phase} / raw{schedule.period - 10}-{schedule.period - 1} / switch{schedule.period}"],
