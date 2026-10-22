@@ -251,13 +251,15 @@ def build_mjcf(
     urdf_data: dict,
     offscreen_width: int,
     offscreen_height: int,
-    scene_preset: str = "studio",
+    scene_preset: str = "holomotion",
     *,
     body_prefix: str = "",
     body_prefixes: Sequence[str] | None = None,
     ghost_body_prefix: str | None = None,
     ghost_rgba: str = "0.35 0.72 1.0 0.28",
 ) -> str:
+    if scene_preset != "holomotion":
+        raise ValueError(f"Unsupported generated scene: {scene_preset}")
     materials = urdf_data["materials"]
     link_visuals = urdf_data["link_visuals"]
     joints_by_name = urdf_data["joints_by_name"]
@@ -265,23 +267,14 @@ def build_mjcf(
     root_link = urdf_data["root_link"]
     mesh_name_map: dict[Path, str] = {}
     asset_lines = ["  <asset>"]
-    if scene_preset in {"studio", "holomotion"}:
-        asset_lines.extend(
-            [
-                '    <texture name="skybox_tex" type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>'
-                if scene_preset == "holomotion"
-                else '    <texture name="skybox_tex" type="skybox" builtin="gradient" rgb1="0.90 0.95 1.00" rgb2="0.54 0.68 0.84" width="512" height="3072"/>',
-                '    <material name="ground_mat" rgba="0.92 0.96 1.00 1" reflectance="0"/>'
-                if scene_preset == "holomotion"
-                else '    <material name="ground_mat" rgba="0.07 0.14 0.32 1" reflectance="0.06"/>',
-                '    <material name="grid_minor_mat" rgba="0.58 0.74 0.95 1" reflectance="0"/>'
-                if scene_preset == "holomotion"
-                else '    <material name="grid_minor_mat" rgba="0.34 0.50 0.74 1" reflectance="0.02"/>',
-                '    <material name="grid_major_mat" rgba="0.30 0.48 0.72 1" reflectance="0"/>'
-                if scene_preset == "holomotion"
-                else '    <material name="grid_major_mat" rgba="0.56 0.76 0.96 1" reflectance="0.03"/>',
-            ]
-        )
+    asset_lines.extend(
+        [
+            '    <texture name="skybox_tex" type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>',
+            '    <material name="ground_mat" rgba="0.92 0.96 1.00 1" reflectance="0"/>',
+            '    <material name="grid_minor_mat" rgba="0.58 0.74 0.95 1" reflectance="0"/>',
+            '    <material name="grid_major_mat" rgba="0.30 0.48 0.72 1" reflectance="0"/>',
+        ]
+    )
     for material_name, rgba in sorted(materials.items()):
         asset_lines.append(f'    <material name="{_sanitize_name(material_name)}" rgba="{rgba}" specular="0.15" shininess="0.2"/>')
     for mesh_file in sorted({visual.mesh_file for visuals in link_visuals.values() for visual in visuals}):
@@ -334,37 +327,23 @@ def build_mjcf(
         lines.append(f"{prefix}</body>")
         return lines
 
-    if scene_preset in {"studio", "holomotion"}:
-        world_lines = [
-            '    <light name="key" pos="-3 -3 5" dir="3 3 -5" diffuse="0.65 0.65 0.65" castshadow="true"/>'
-            if scene_preset == "holomotion"
-            else '    <light name="key" pos="2.5 -3.0 4.8" dir="-0.35 0.35 -1" directional="true" diffuse="1.0 1.0 1.0" specular="0.15 0.15 0.15" castshadow="true"/>',
-            '    <light name="fill" pos="3 4 4.5" dir="-3 -4 -4.5" diffuse="0.35 0.35 0.35" castshadow="false"/>'
-            if scene_preset == "holomotion"
-            else '    <light name="fill" pos="-3.0 2.5 3.8" dir="0.35 -0.25 -1" directional="true" diffuse="0.55 0.58 0.62" specular="0.05 0.05 0.05" castshadow="false"/>',
-            '    <light name="rim" pos="0.0 4.0 3.2" dir="0 -0.6 -1" directional="true" diffuse="0.35 0.38 0.42" specular="0.03 0.03 0.03" castshadow="false"/>',
-            '    <geom name="floor" type="plane" size="14 14 0.1" material="ground_mat"/>',
-        ]
-        for idx in range(-12, 13):
-            coord = float(idx)
-            major = abs(idx) % 5 == 0
-            half = 0.018 if major else 0.01
-            mat = "grid_major_mat" if major else "grid_minor_mat"
-            world_lines.append(f'    <geom name="grid_x_{idx + 12}" type="box" pos="{coord:.6g} 0 0.001" size="{half:.6g} 12 0.001" material="{mat}" contype="0" conaffinity="0"/>')
-            world_lines.append(f'    <geom name="grid_y_{idx + 12}" type="box" pos="0 {coord:.6g} 0.001" size="12 {half:.6g} 0.001" material="{mat}" contype="0" conaffinity="0"/>')
-        haze = "0.15 0.25 0.35 1" if scene_preset == "holomotion" else "0.98 0.99 1 1"
-        headlight = (
-            '    <headlight diffuse="0.75 0.75 0.75" ambient="0.18 0.18 0.18" specular="0.95 0.95 0.95"/>'
-            if scene_preset == "holomotion"
-            else '    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.08 0.08 0.08"/>'
-        )
-    else:
-        world_lines = [
-            '    <light name="sun" pos="0 0 4.5" dir="0 0 -1"/>',
-            '    <geom name="floor" type="plane" size="8 8 0.1" rgba="0.95 0.95 0.95 1"/>',
-        ]
-        haze = "1 1 1 1"
-        headlight = '    <headlight ambient="0.6 0.6 0.6" diffuse="0.8 0.8 0.8" specular="0.15 0.15 0.15"/>'
+    world_lines = [
+        '    <light name="key" pos="-3 -3 5" dir="3 3 -5" diffuse="0.65 0.65 0.65" castshadow="true"/>',
+        '    <light name="fill" pos="3 4 4.5" dir="-3 -4 -4.5" diffuse="0.35 0.35 0.35" castshadow="false"/>',
+        '    <light name="rim" pos="0.0 4.0 3.2" dir="0 -0.6 -1" directional="true" diffuse="0.35 0.38 0.42" specular="0.03 0.03 0.03" castshadow="false"/>',
+        '    <geom name="floor" type="plane" size="14 14 0.1" material="ground_mat"/>',
+    ]
+    for idx in range(-12, 13):
+        coord = float(idx)
+        major = abs(idx) % 5 == 0
+        half = 0.018 if major else 0.01
+        mat = "grid_major_mat" if major else "grid_minor_mat"
+        world_lines.append(f'    <geom name="grid_x_{idx + 12}" type="box" pos="{coord:.6g} 0 0.001" size="{half:.6g} 12 0.001" material="{mat}" contype="0" conaffinity="0"/>')
+        world_lines.append(f'    <geom name="grid_y_{idx + 12}" type="box" pos="0 {coord:.6g} 0.001" size="12 {half:.6g} 0.001" material="{mat}" contype="0" conaffinity="0"/>')
+    haze = "0.15 0.25 0.35 1"
+    headlight = (
+        '    <headlight diffuse="0.75 0.75 0.75" ambient="0.18 0.18 0.18" specular="0.95 0.95 0.95"/>'
+    )
 
     if body_prefixes is None:
         robot_prefixes = [body_prefix]
@@ -402,6 +381,7 @@ def build_mjcf(
             "</mujoco>",
         ]
     ) + "\n"
+
 
 
 def _make_camera(model: mujoco.MjModel, lookat: np.ndarray, distance: float, azimuth: float, elevation: float) -> mujoco.MjvCamera:
@@ -946,6 +926,23 @@ def render_qpos_multi_frames(
     return np.stack(frames, axis=0)
 
 
+def load_scene_model(scene_preset: str, urdf_path: str | Path, width: int, height: int) -> mujoco.MjModel:
+    """Load the generated-motion viewer or the actual tracker scene."""
+    if scene_preset == "tracker_native":
+        from omg.tracking.holomotion.runtime import resolve_robot_xml
+
+        model = mujoco.MjModel.from_xml_path(str(resolve_robot_xml(None)))
+        model.vis.global_.offwidth = width
+        model.vis.global_.offheight = height
+        return model
+    if scene_preset != "holomotion":
+        raise ValueError(f"Unsupported scene: {scene_preset}")
+    return mujoco.MjModel.from_xml_string(build_mjcf(
+        parse_urdf(urdf_path), offscreen_width=width, offscreen_height=height,
+        scene_preset=scene_preset,
+    ))
+
+
 def render_qpos_video(
     qpos_36: torch.Tensor | np.ndarray,
     output_path: str | Path,
@@ -959,7 +956,7 @@ def render_qpos_video(
     follow_mode: str = "xy",
     kinematics_path: str | Path = "assets/robots/g1/g1_kinematics.json",
     urdf_path: str | Path = "assets/robots/g1/g1_29dof.urdf",
-    scene_preset: str = "studio",
+    scene_preset: str = "holomotion",
     title: str = "G1 Motion",
     overlay_lines: Sequence[str] | None = None,
     frame_overlay_lines: Sequence[Sequence[str] | str] | None = None,
@@ -995,14 +992,10 @@ def render_qpos_video(
     kinematics = G1Kinematics(kinematics_path)
     body_state = kinematics.forward_kinematics(torch.from_numpy(qpos_np))
     body_pos_w = body_state["body_pos_w"].cpu().numpy()
-    urdf_data = parse_urdf(urdf_path)
-    xml_string = build_mjcf(
-        urdf_data,
-        offscreen_width=max(1, width if len(camera_azimuths) == 1 else width // len(camera_azimuths)),
-        offscreen_height=height,
-        scene_preset=scene_preset,
+    model = load_scene_model(
+        scene_preset, urdf_path,
+        max(1, width if len(camera_azimuths) == 1 else width // len(camera_azimuths)), height,
     )
-    model = mujoco.MjModel.from_xml_string(xml_string)
     data = mujoco.MjData(model)
     if per_frame_info_lines is None:
         per_frame_info_lines = _frame_overlay_lines(frame_overlay_lines, len(qpos_np))
@@ -1053,7 +1046,7 @@ def render_qpos_comparison_video(
     follow_mode: str = "xy",
     kinematics_path: str | Path = "assets/robots/g1/g1_kinematics.json",
     urdf_path: str | Path = "assets/robots/g1/g1_29dof.urdf",
-    scene_preset: str = "studio",
+    scene_preset: str = "holomotion",
     left_title: str = "Generated",
     right_title: str = "Ground Truth",
     overlay_lines: Sequence[str] | None = None,
@@ -1063,6 +1056,7 @@ def render_qpos_comparison_video(
     left_ghost_qpos_36: torch.Tensor | np.ndarray | None = None,
     left_ghost_alpha: float = 0.28,
     camera_distance_scale: float = 1.0,
+    right_scene_preset: str = "holomotion",
 ) -> Path:
     def as_qpos(value: torch.Tensor | np.ndarray, name: str) -> np.ndarray:
         if isinstance(value, torch.Tensor):
@@ -1099,15 +1093,12 @@ def render_qpos_comparison_video(
     panel_width = max(1, width // 2)
     kinematics = G1Kinematics(kinematics_path)
     urdf_data = parse_urdf(urdf_path)
-    xml_string = build_mjcf(
-        urdf_data,
-        offscreen_width=max(1, panel_width if len(camera_azimuths) == 1 else panel_width // len(camera_azimuths)),
-        offscreen_height=height,
-        scene_preset=scene_preset,
-    )
 
-    def render_one(qpos_np: np.ndarray, title: str) -> np.ndarray:
-        model = mujoco.MjModel.from_xml_string(xml_string)
+    def render_one(qpos_np: np.ndarray, title: str, scene: str) -> np.ndarray:
+        model = load_scene_model(
+            scene, urdf_path,
+            max(1, panel_width if len(camera_azimuths) == 1 else panel_width // len(camera_azimuths)), height,
+        )
         data = mujoco.MjData(model)
         body_state = kinematics.forward_kinematics(torch.from_numpy(qpos_np))
         body_pos_w = body_state["body_pos_w"].cpu().numpy()
@@ -1131,7 +1122,7 @@ def render_qpos_comparison_video(
         )
 
     if ghost_np is None:
-        left_frames = render_one(left_np, left_title)
+        left_frames = render_one(left_np, left_title, scene_preset)
     else:
         ghost_alpha = min(max(float(left_ghost_alpha), 0.0), 1.0)
         overlay_xml_string = build_mjcf(
@@ -1166,7 +1157,7 @@ def render_qpos_comparison_video(
             per_frame_info_lines=per_frame_info_lines,
             camera_distance_scale=camera_distance_scale,
         )
-    right_frames = render_one(right_np, right_title)
+    right_frames = render_one(right_np, right_title, right_scene_preset)
     frames = np.concatenate([left_frames, right_frames], axis=2)
     path = save_video(frames, output_path, fps=fps)
     metadata = {
@@ -1176,6 +1167,7 @@ def render_qpos_comparison_video(
         "camera_view": camera_view,
         "follow_mode": follow_mode,
         "scene_preset": scene_preset,
+        "right_scene_preset": right_scene_preset,
         "left_title": left_title,
         "right_title": right_title,
         "music_end_frame": None if music_end_frame is None else int(music_end_frame),
@@ -1292,7 +1284,7 @@ def render_robot_human_comparison_video(
     height: int = 720,
     camera_view: str = "iso",
     follow_mode: str = "xy",
-    scene_preset: str = "studio",
+    scene_preset: str = "holomotion",
     left_title: str = "Generated Robot",
     right_title: str = "Human Reference",
     overlay_lines: Sequence[str] | None = None,
