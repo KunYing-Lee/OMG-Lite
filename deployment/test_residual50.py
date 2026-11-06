@@ -75,6 +75,59 @@ class FakeSession:
         return latent, corrected, delta
 
 
+def make_knot_manifest(**overrides):
+    manifest = make_manifest(
+        residual_knots=3,
+        plan_frames=25,
+        action_frames=3,
+        residual_interpolation="cubic_hermite",
+    )
+    manifest.update(overrides)
+    return manifest
+
+
+class FakeKnotSession:
+    """Knot actor: one latent output, no corrected/delta tensors."""
+
+    def __init__(self, manifest, latent_value=0.0):
+        self.manifest = manifest
+        self.latent_value = latent_value
+        self.last_feeds = None
+
+    def run(self, _names, feeds):
+        self.last_feeds = {k: v.copy() for k, v in feeds.items()}
+        width = int(self.manifest["action_frames"]) * 29
+        value = np.asarray(self.latent_value, np.float32)
+        latent = (np.full((1, width), float(value), np.float32)
+                  if value.ndim == 0 else np.broadcast_to(value, (1, width)).copy())
+        return [latent]
+
+
+def torch_hermite_knot(knots, anchor, slope, frames):
+    """Reference port of omg_posttrain.policies.residual.decode_hermite_knot_latent."""
+    positions = r50.knot_positions(frames, knots.shape[1])
+    points = torch.cat((anchor[:, None], knots), dim=1)
+    tangents = [slope]
+    for index in range(1, knots.shape[1]):
+        tangents.append((points[:, index + 1] - points[:, index - 1])
+                        / (positions[index + 1] - positions[index - 1]))
+    tangents.append((points[:, knots.shape[1]] - points[:, knots.shape[1] - 1])
+                    / (positions[knots.shape[1]] - positions[knots.shape[1] - 1]))
+    out = []
+    interval = 0
+    for t in range(frames):
+        while not positions[interval] < t <= positions[interval + 1]:
+            interval += 1
+        left, right = positions[interval], positions[interval + 1]
+        h = right - left
+        u = (t - left) / h
+        h00, h10 = 2 * u ** 3 - 3 * u ** 2 + 1, u ** 3 - 2 * u ** 2 + u
+        h01, h11 = -2 * u ** 3 + 3 * u ** 2, u ** 3 - u ** 2
+        out.append(h00 * points[:, interval] + h10 * h * tangents[interval]
+                   + h01 * points[:, interval + 1] + h11 * h * tangents[interval + 1])
+    return torch.stack(out, dim=1), tangents[-1]
+
+
 def make_ref(frames=200, seed=7):
     rng = np.random.default_rng(seed)
     ref = np.zeros((frames, 36), np.float32)
@@ -247,6 +300,92 @@ def test_registry_and_manifest_validation():
     print("  registry: discover/off/auto/name/invalid-entry OK")
 
 
+def test_knot_decode_matches_torch():
+    rng = np.random.default_rng(11)
+    for knots in (3, 5, 25):
+        k = rng.normal(size=(2, knots, 29)).astype(np.float32)
+        anchor = rng.normal(size=(2, 29)).astype(np.float32)
+        slope = rng.normal(size=(2, 29)).astype(np.float32)
+        got, got_end = r50.decode_hermite_knot_latent(k, anchor, slope, 25)
+        expected, expected_end = torch_hermite_knot(
+            torch.from_numpy(k), torch.from_numpy(anchor), torch.from_numpy(slope), 25)
+        assert np.abs(got - expected.numpy()).max() < 1e-6
+        assert np.abs(got_end - expected_end.numpy()).max() < 1e-6
+    print("  hermite knot decode matches torch (K=3/5/25)")
+
+
+def test_knot_zero_is_identity_and_anchor_continues():
+    manifest = make_knot_manifest()
+    session = FakeKnotSession(manifest, latent_value=0.0)
+    actor = r50.ResidualActor(manifest, session)
+    corrector = r50.ResidualCorrector(actor)
+    raw = make_ref()
+
+    first = corrector.step(frame=0, raw_reference=raw, corrected_tape=raw,
+                           robot_state=make_state(raw, 0), last_action_onnx=np.zeros(29))
+    assert first is not None and first.start == 0
+    assert first.latent.shape == (87,)
+    assert first.joints_g1.shape == (25, 29) and first.delta.shape == (25, 29)
+    assert np.array_equal(first.joints_g1, raw[0:25, 7:])
+    assert np.all(first.delta == 0.0)
+    assert np.array_equal(corrector._anchor, np.zeros(29, np.float32))
+    assert np.array_equal(corrector._slope, np.zeros(29, np.float32))
+    assert corrector._written_end == 25
+    assert set(session.last_feeds) == {"raw"}          # no base feed for a knot actor
+
+    second = corrector.step(frame=14, raw_reference=raw, corrected_tape=raw,
+                            robot_state=make_state(raw, 14), last_action_onnx=np.zeros(29))
+    assert second is not None and second.start == 25
+    assert corrector._written_end == 50
+
+    corrector._written_end = 26
+    try:
+        corrector.step(frame=14, raw_reference=raw, corrected_tape=raw,
+                       robot_state=make_state(raw, 14), last_action_onnx=np.zeros(29))
+        raise AssertionError("expected non-contiguous segment rejection")
+    except RuntimeError as error:
+        assert "previous segment ends" in str(error)
+    print("  zero knots identity; anchor/slope state; non-contiguous segment rejected")
+
+
+def test_knot_nonzero_updates_anchor_and_slope():
+    manifest = make_knot_manifest()
+    latent = np.linspace(0.0, 0.2, 87, dtype=np.float32)
+    actor = r50.ResidualActor(manifest, FakeKnotSession(manifest, latent_value=latent))
+    corrector = r50.ResidualCorrector(actor)
+    raw = make_ref()
+    corrector.step(frame=0, raw_reference=raw, corrected_tape=raw,
+                   robot_state=make_state(raw, 0), last_action_onnx=np.zeros(29))
+    assert np.abs(corrector._anchor).max() > 0.0
+    assert np.abs(corrector._slope).max() > 0.0
+    corrector.step(frame=14, raw_reference=raw, corrected_tape=raw,
+                   robot_state=make_state(raw, 14), last_action_onnx=np.zeros(29))
+    assert corrector._written_end == 50
+    print("  knot actor updates anchor and end slope across segments")
+
+
+def test_knot_manifest_validation():
+    good = make_knot_manifest()
+    path = HERE / "_knot_manifest.json"
+    path.write_text(json.dumps(good))
+    loaded = r50.load_manifest(path)
+    assert (loaded["plan_frames"], loaded["action_frames"],
+            loaded["residual_knots"], loaded["residual_interpolation"]) == (25, 3, 3, "cubic_hermite")
+    for bad, message in (
+        (make_knot_manifest(action_frames=25), "action_frames"),
+        (make_knot_manifest(residual_interpolation="spline"), "residual_interpolation"),
+        (make_knot_manifest(plan_frames=50), "plan_frames"),
+    ):
+        path.write_text(json.dumps(bad))
+        try:
+            r50.load_manifest(path)
+            raise AssertionError("expected manifest rejection")
+        except ValueError as error:
+            assert message in str(error)
+    path.unlink()
+    print("  knot manifest validation (action_frames/plan_frames/interpolation)")
+
+
 def main():
     print("residual50 tests")
     test_reference_block_matches_training_builder()
@@ -257,6 +396,10 @@ def main():
     test_corrector_contract()
     test_short_reference_fails_closed()
     test_registry_and_manifest_validation()
+    test_knot_decode_matches_torch()
+    test_knot_zero_is_identity_and_anchor_continues()
+    test_knot_nonzero_updates_anchor_and_slope()
+    test_knot_manifest_validation()
     print("ALL PASSED")
 
 
