@@ -1,0 +1,248 @@
+# Initial-noise deployment config: frozen SFT step-400 generator, DDIM-20, FP32.
+# Copied from the 50-step residual deploy config; only diffusion steps and
+# the kinematics path differ. Paths are for 5090 /home/deploy/why/omg-lite-noise-20261106.
+data:
+  _target_: omg.data.datamodule.GenerationDataModule
+  dataset_opts:
+    train:
+      front:
+        _target_: omg_posttrain.data.rollout_history_dataset.RolloutHistoryG1MotionDataset
+        manifest_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified/windows.jsonl
+        manifest_sha256: 83483cf91063550fed729967006e52962af50fcde32ec59aa33571aa9f14c0e0
+        fps: 50.0
+        sequence_duration: 2.0
+        num_prev_states: 10
+        canonical_frame_idx: 9
+        rot6d_gradient_mode: vanilla
+        expected_feature_dim: 38
+        kinematics_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/omg-lite/assets/robots/g1/g1_kinematics.json
+    val:
+      front:
+        _target_: omg_posttrain.data.rollout_history_dataset.RolloutHistoryG1MotionDataset
+        manifest_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified/windows.jsonl
+        manifest_sha256: 83483cf91063550fed729967006e52962af50fcde32ec59aa33571aa9f14c0e0
+        fps: 50.0
+        sequence_duration: 2.0
+        num_prev_states: 10
+        canonical_frame_idx: 9
+        rot6d_gradient_mode: vanilla
+        expected_feature_dim: 38
+        kinematics_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/omg-lite/assets/robots/g1/g1_kinematics.json
+    test:
+      front:
+        _target_: omg_posttrain.data.rollout_history_dataset.RolloutHistoryG1MotionDataset
+        manifest_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified/windows.jsonl
+        manifest_sha256: 83483cf91063550fed729967006e52962af50fcde32ec59aa33571aa9f14c0e0
+        fps: 50.0
+        sequence_duration: 2.0
+        num_prev_states: 10
+        canonical_frame_idx: 9
+        rot6d_gradient_mode: vanilla
+        expected_feature_dim: 38
+        kinematics_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/omg-lite/assets/robots/g1/g1_kinematics.json
+  loader_opts:
+    train:
+      batch_size: 16
+      num_workers: 0
+      prefetch_factor: null
+    val:
+      batch_size: 16
+      num_workers: 0
+      prefetch_factor: null
+    test:
+      batch_size: 16
+      num_workers: 0
+      prefetch_factor: null
+representation:
+  _target_: omg.motion.representation.G1MotionRepresentation
+  stats_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/bundle/g1_38d_50hz_hist10_stats.json
+  kinematics_path: /home/deploy/why/omg-lite-noise-20261106/assets/robots/g1/g1_kinematics.json
+  num_prev_states: 10
+  canonical_frame_idx: 9
+  feat_dim: 38
+  sequence_length: 100
+  rotation_representation: rot6d
+  rot6d_gradient_mode: vanilla
+  include_body_positions: false
+denoiser:
+  _target_: omg.generation.denoisers.transformer.MotionTransformerDenoiser
+  input_dim: 38
+  hidden_dim: 512
+  num_layers: 10
+  num_heads: 8
+  mlp_ratio: 4.0
+  text_dim: 768
+  dropout: 0.1
+  rope_base: 10000.0
+  audio_local_attn_window: 8
+  human_motion_local_attn_window: 2
+  use_human_motion_local_attn: false
+  self_attention_qk_norm: true
+  cross_attention_qk_norm: true
+diffusion:
+  _target_: omg.generation.diffusion.guided.GuidedDiffusion
+  timesteps: 1000
+  objective: pred_x0
+  beta_schedule: cosine
+  train_timestep_respacing: ''
+  test_timestep_respacing: '20'
+  sampler: ddim
+  ddim_eta: 0.0
+  cfg_scale: 2.5
+loss:
+  _target_: omg.generation.losses.motion.MotionLoss
+  simple_root_pos: 0.0
+  simple_root_rot: 0.0
+  simple_joint_dof: 0.0
+  simple_body_pos: 0.0
+  vel_root_pos: 0.0
+  vel_root_rot: 0.0
+  vel_joint_dof: 0.0
+  body_pos_consistency: 0.0
+  fk_body_pos: 0.0
+  fk_body_rot: 0.0
+  body_vel: 0.0
+  terrain_penetration: 0.0
+  contact_height: 0.0
+  contact_velocity: 0.0
+  seam_root_pos: 0.0
+  seam_root_rot: 0.0
+  seam_joint_dof: 0.0
+  seam_body_pos: 0.0
+model:
+  _target_: omg.generation.models.motion_generator.MotionGenerator
+  _recursive_: false
+  representation:
+    _target_: omg.motion.representation.G1MotionRepresentation
+    stats_path: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/bundle/g1_38d_50hz_hist10_stats.json
+    kinematics_path: /home/deploy/why/omg-lite-noise-20261106/assets/robots/g1/g1_kinematics.json
+    num_prev_states: 10
+    canonical_frame_idx: 9
+    feat_dim: 38
+    sequence_length: 100
+    rotation_representation: rot6d
+    rot6d_gradient_mode: vanilla
+    include_body_positions: false
+  denoiser:
+    _target_: omg.generation.denoisers.transformer.MotionTransformerDenoiser
+    input_dim: 38
+    hidden_dim: 512
+    num_layers: 10
+    num_heads: 8
+    mlp_ratio: 4.0
+    text_dim: 768
+    dropout: 0.1
+    rope_base: 10000.0
+    audio_local_attn_window: 8
+    human_motion_local_attn_window: 2
+    use_human_motion_local_attn: false
+    self_attention_qk_norm: true
+    cross_attention_qk_norm: true
+  diffusion:
+    _target_: omg.generation.diffusion.guided.GuidedDiffusion
+    timesteps: 1000
+    objective: pred_x0
+    beta_schedule: cosine
+    train_timestep_respacing: ''
+    test_timestep_respacing: '20'
+    sampler: ddim
+    ddim_eta: 0.0
+    cfg_scale: 2.5
+  loss:
+    _target_: omg.generation.losses.motion.MotionLoss
+    simple_root_pos: 0.0
+    simple_root_rot: 0.0
+    simple_joint_dof: 0.0
+    simple_body_pos: 0.0
+    vel_root_pos: 0.0
+    vel_root_rot: 0.0
+    vel_joint_dof: 0.0
+    body_pos_consistency: 0.0
+    fk_body_pos: 0.0
+    fk_body_rot: 0.0
+    body_vel: 0.0
+    terrain_penetration: 0.0
+    contact_height: 0.0
+    contact_velocity: 0.0
+    seam_root_pos: 0.0
+    seam_root_rot: 0.0
+    seam_joint_dof: 0.0
+    seam_body_pos: 0.0
+  text_encoder:
+    _target_: omg.generation.conditions.t5.FrozenT5TextEncoder
+    model_name: /home/deploy/OMG-Posttrain/assets/t5-base-local
+    max_length: 50
+    output_dim: 768
+    frozen_eval: true
+    cache_max_entries: 4096
+    cache_device: encoder
+  diffusion_target: future
+  condition_dim: 512
+  text_mask_prob: 0.1
+  history_mask_prob: 0.1
+  history_pos_encoding: sinusoidal
+  use_audio: false
+  audio_dim: 35
+  audio_mask_prob: 0.1
+  use_human_motion: false
+  human_motion_dim: 66
+  human_motion_mask_prob: 0.5
+  frame_cond_injection: per_layer_film
+  log_loss_term_grad_norms: false
+  loss_term_grad_norm_every_n_steps: 100
+  loss_term_grad_norm_norm_type: 2.0
+  optimizer:
+    lr: 1.0e-05
+    weight_decay: 0.01
+  scheduler:
+    type: linear_warmup_cosine
+    warmup_steps: 25
+    warmup_start_factor: 0.01
+    t_max: 400
+    eta_min: 1.0e-06
+trainer:
+  accelerator: gpu
+  devices: 1
+  strategy: auto
+  max_steps: 400
+  val_check_interval: 50
+  log_every_n_steps: 1
+  precision: bf16-mixed
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  enable_checkpointing: true
+  num_sanity_val_steps: 1
+  check_val_every_n_epoch: null
+  use_distributed_sampler: false
+  max_epochs: -1
+  accumulate_grad_batches: 1
+  limit_val_batches: 4
+logger:
+  enabled: true
+  _target_: pytorch_lightning.loggers.CSVLogger
+  save_dir: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified
+  name: metrics
+callbacks:
+  checkpoint:
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified/training/checkpoints
+    filename: s{step:06d}
+    every_n_train_steps: 50
+    save_top_k: -1
+    save_last: true
+paths:
+  repo_root: .
+  output_root: outputs
+  data_root: ./data/OMG-Data-50Hz
+  materialized_root: ./data/OMG-Data-50Hz/materialized
+  models_root: ./models
+seed: 1234
+task: fit
+ckpt_path: null
+init_weights_only_ckpt: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified/training/checkpoints/sstep=000400.ckpt
+init_weights_strict: true
+exp_name: front00369_native50_exhaustive
+output_dir: /home/deploy/OMG-Posttrain/assets/generator/front00369-native38-sft400/sft-verified/training
+checkpoint_io:
+  _target_: omg.runtime.checkpoint_io.DirectTorchCheckpointIO
+posttrain_backend: omg_lite
