@@ -1,10 +1,13 @@
-﻿"""Native-50 Hz residual actor for OMG-Lite -- a *reference corrector*, not an action adder.
+"""Native-50 Hz residual actor for OMG-Lite -- a *reference corrector*, not an action adder.
 
 Verified against the training source `KunYing-Lee/OMG-Posttrain` @ `8d36862`
 (2026-10-26, `feat/unified-noise-residual-ppo` merged), not reverse-engineered:
 
   * shapes: `learning/ppo/train.py:160` -> action_frames = period (25),
     observation_frames = period + 11 (36); `train.py:176` -> residual period = period.
+    The smooth knot contract keeps the same observation and period but the actor
+    emits `residual_knots x 29`; this module expands it with the anchored C1
+    Hermite decoder, carrying the previous segment's last latent and end slope.
   * observation: `policies/observations/v3.py:82-127` (preview) +
     `policies/trajectory30.py:26-45` (committed queue, `reference_hz=50`):
         610   = 5 x 122 proprio
@@ -190,10 +193,13 @@ def bounded_joint_residual(
     latent = np.asarray(latent, np.float32)
     lower = np.asarray(lower, np.float32).reshape(29)
     upper = np.asarray(upper, np.float32).reshape(29)
-    if base.ndim != 3 or base.shape[-1] != 36 or base.shape[-2] != ACTION_FRAMES:
-        raise ValueError(f"base must be (1,25,36), got {base.shape}")
-    if latent.shape != (1, ACTION_FRAMES, 29):
-        raise ValueError(f"latent must be (1,25,29), got {latent.shape}")
+    if base.ndim != 3 or base.shape[-1] != 36:
+        raise ValueError(f"base must be (1,frames,36), got {base.shape}")
+    frames = int(base.shape[-2])
+    if frames < 1 or frames > 100:
+        raise ValueError(f"base must cover 1..100 frames, got {frames}")
+    if latent.shape != (1, frames, 29):
+        raise ValueError(f"latent must be (1,{frames},29), got {latent.shape}")
     if not (np.isfinite(base).all() and np.isfinite(latent).all()):
         raise ValueError("Non-finite residual input")
     base_joints = base[..., 7:]
@@ -206,6 +212,94 @@ def bounded_joint_residual(
     delta = np.float32(residual_scale) * normalized * available
     corrected = np.concatenate((base[..., :7], base_joints + delta), axis=-1)
     return corrected.astype(np.float32), delta.astype(np.float32)
+
+
+# --------------------------------------------------------------------------- #
+# knot decoding (exact NumPy port of omg_posttrain.policies.residual)
+# --------------------------------------------------------------------------- #
+def knot_positions(frames: int, knots: int) -> list[float]:
+    """Anchor at frame -1, knot k (1..knots) at round(frames*k/knots)-1."""
+    if type(frames) is not int or type(knots) is not int or not 1 <= knots <= frames:
+        raise ValueError("require integer 1 <= knots <= frames")
+    positions = [-1.0] + [float(round(frames * k / knots) - 1) for k in range(1, knots + 1)]
+    if any(right <= left for left, right in zip(positions, positions[1:])):
+        raise ValueError("knot positions must be strictly increasing")
+    return positions
+
+
+def decode_knot_latent(
+    knots_latent: np.ndarray,
+    anchor_latent: np.ndarray,
+    frames: int,
+) -> np.ndarray:
+    """Expand [B,K,29] knots with the piecewise-linear anchored contract."""
+    knots_latent = np.asarray(knots_latent, np.float32)
+    anchor_latent = np.asarray(anchor_latent, np.float32)
+    if knots_latent.ndim != 3 or knots_latent.shape[-1] != 29:
+        raise ValueError("knots_latent must have shape [B,K,29]")
+    if anchor_latent.shape != (knots_latent.shape[0], 29):
+        raise ValueError("anchor_latent must have shape [B,29]")
+    positions = knot_positions(int(frames), knots_latent.shape[1])
+    stacked = np.concatenate((anchor_latent[:, None], knots_latent), axis=1)
+    out = np.zeros((knots_latent.shape[0], int(frames), 29), np.float32)
+    for t in range(int(frames)):
+        for index in range(knots_latent.shape[1]):
+            left, right = positions[index], positions[index + 1]
+            if left < t <= right:
+                weight = np.float32((t - left) / (right - left))
+                out[:, t] = (np.float32(1.0) - weight) * stacked[:, index] + weight * stacked[:, index + 1]
+                break
+        else:
+            raise ValueError(f"no knot interval covers frame {t}")
+    return out
+
+
+def decode_hermite_knot_latent(
+    knots_latent: np.ndarray,
+    anchor_latent: np.ndarray,
+    anchor_slope: np.ndarray,
+    frames: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """C1 cubic Hermite expansion of [B,K,29] knots (anchored at frame -1)."""
+    knots_latent = np.asarray(knots_latent, np.float32)
+    anchor_latent = np.asarray(anchor_latent, np.float32)
+    anchor_slope = np.asarray(anchor_slope, np.float32)
+    if knots_latent.ndim != 3 or knots_latent.shape[-1] != 29:
+        raise ValueError("knots_latent must have shape [B,K,29]")
+    batch, count = knots_latent.shape[:2]
+    if anchor_latent.shape != (batch, 29) or anchor_slope.shape != (batch, 29):
+        raise ValueError("anchor latent and slope must have shape [B,29]")
+    positions = knot_positions(int(frames), count)
+    points = np.concatenate((anchor_latent[:, None], knots_latent), axis=1)
+    tangents = [anchor_slope]
+    for index in range(1, count):
+        tangents.append(
+            (points[:, index + 1] - points[:, index - 1])
+            / np.float32(positions[index + 1] - positions[index - 1])
+        )
+    tangents.append(
+        (points[:, count] - points[:, count - 1])
+        / np.float32(positions[count] - positions[count - 1])
+    )
+    out = []
+    interval = 0
+    for t in range(int(frames)):
+        while not positions[interval] < t <= positions[interval + 1]:
+            interval += 1
+        left, right = positions[interval], positions[interval + 1]
+        h = np.float32(right - left)
+        u = np.float32((t - left) / (right - left))
+        h00 = np.float32(2.0) * u ** 3 - np.float32(3.0) * u ** 2 + np.float32(1.0)
+        h10 = u ** 3 - np.float32(2.0) * u ** 2 + u
+        h01 = -np.float32(2.0) * u ** 3 + np.float32(3.0) * u ** 2
+        h11 = u ** 3 - u ** 2
+        out.append(
+            h00 * points[:, interval]
+            + h10 * h * tangents[interval]
+            + h01 * points[:, interval + 1]
+            + h11 * h * tangents[interval + 1]
+        )
+    return np.stack(out, axis=1).astype(np.float32), tangents[-1].astype(np.float32)
 
 
 # --------------------------------------------------------------------------- #
@@ -232,18 +326,40 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"{path}: manifest missing {sorted(missing)}")
     if int(manifest["raw_width"]) != RAW_WIDTH:
         raise ValueError(f"{path}: raw_width {manifest['raw_width']} != {RAW_WIDTH}")
-    if int(manifest["action_frames"]) != ACTION_FRAMES:
-        raise ValueError(f"{path}: action_frames {manifest['action_frames']} != {ACTION_FRAMES}")
     if int(manifest["future_frames"]) != FUTURE_FRAMES:
         raise ValueError(f"{path}: future_frames {manifest['future_frames']} != {FUTURE_FRAMES}")
-    if int(manifest["residual_period_frames"]) != ACTION_FRAMES:
-        raise ValueError(f"{path}: residual period must equal the switch period")
+    period = int(manifest["residual_period_frames"])
+    if period != ACTION_FRAMES:
+        raise ValueError(f"{path}: residual period must equal the 25-frame switch period")
+    plan_frames = int(manifest.get("plan_frames", period))
+    if plan_frames != period:
+        raise ValueError(f"{path}: plan_frames {plan_frames} != switch period {period}")
+    action_frames = int(manifest["action_frames"])
+    knots = manifest.get("residual_knots")
+    interpolation = manifest.get("residual_interpolation")
+    if knots is None:
+        if interpolation not in (None, "linear"):
+            raise ValueError(f"{path}: residual_interpolation requires residual_knots")
+        if action_frames != period:
+            raise ValueError(f"{path}: per-frame action_frames {action_frames} != {period}")
+        interpolation = None
+    else:
+        if type(knots) is not int or not 1 <= knots <= period:
+            raise ValueError(f"{path}: residual_knots must be an integer in [1,{period}]")
+        if action_frames != knots:
+            raise ValueError(f"{path}: action_frames {action_frames} != residual_knots {knots}")
+        interpolation = "linear" if interpolation is None else interpolation
+        if interpolation not in ("linear", "cubic_hermite"):
+            raise ValueError(f"{path}: residual_interpolation must be linear or cubic_hermite")
     for key in ("joint_lower_limits", "joint_upper_limits"):
         if np.asarray(manifest[key], np.float32).shape != (29,):
             raise ValueError(f"{path}: {key} must have 29 entries")
     if not np.all(np.asarray(manifest["joint_lower_limits"]) < np.asarray(manifest["joint_upper_limits"])):
         raise ValueError(f"{path}: joint limits are inverted")
-    return manifest
+    normalized = dict(manifest)
+    normalized.update(plan_frames=plan_frames, action_frames=action_frames,
+                      residual_knots=knots, residual_interpolation=interpolation)
+    return normalized
 
 
 class ResidualActor:
@@ -257,20 +373,35 @@ class ResidualActor:
         self.residual_scale = float(manifest["residual_scale"])
         self.residual_latent_gain = float(manifest["residual_latent_gain"])
         self.period = int(manifest["residual_period_frames"])
+        self.plan_frames = int(manifest.get("plan_frames", ACTION_FRAMES))
+        self.action_frames = int(manifest["action_frames"])
+        self.knots = manifest.get("residual_knots")
+        self.interpolation = manifest.get("residual_interpolation")
+        self.per_frame = self.knots is None or self.action_frames == self.plan_frames
 
-    def act(self, raw: np.ndarray, base: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if raw.shape != (1, RAW_WIDTH) or base.shape != (1, ACTION_FRAMES, 36):
+    def act(self, raw: np.ndarray, base: np.ndarray) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
+        if raw.shape != (1, RAW_WIDTH) or base.shape != (1, self.plan_frames, 36):
             raise ValueError("Invalid actor input shapes")
-        latent, corrected, delta = self.session.run(None, {"raw": raw, "base": base})
-        latent = np.asarray(latent, np.float32)
-        corrected = np.asarray(corrected, np.float32)
-        delta = np.asarray(delta, np.float32)
-        if latent.shape != (1, ACTION_FRAMES * 29) or corrected.shape != (1, ACTION_FRAMES, 36) \
-                or delta.shape != (1, ACTION_FRAMES, 29):
-            raise ValueError("Actor returned unexpected shapes")
-        if not (np.isfinite(latent).all() and np.isfinite(corrected).all() and np.isfinite(delta).all()):
+        if self.per_frame:
+            latent, corrected, delta = self.session.run(None, {"raw": raw, "base": base})
+            latent = np.asarray(latent, np.float32)
+            corrected = np.asarray(corrected, np.float32)
+            delta = np.asarray(delta, np.float32)
+            if latent.shape != (1, self.action_frames * 29) or corrected.shape != (1, self.plan_frames, 36) \
+                    or delta.shape != (1, self.plan_frames, 29):
+                raise ValueError("Actor returned unexpected shapes")
+            if not (np.isfinite(latent).all() and np.isfinite(corrected).all() and np.isfinite(delta).all()):
+                raise ValueError("Actor returned non-finite values")
+            return latent, corrected, delta
+        outputs = self.session.run(None, {"raw": raw})
+        if len(outputs) != 1:
+            raise ValueError("Knot actor must return exactly one latent tensor")
+        latent = np.asarray(outputs[0], np.float32)
+        if latent.shape != (1, self.action_frames * 29):
+            raise ValueError(f"Knot actor returned {latent.shape}, expected (1,{self.action_frames * 29})")
+        if not np.isfinite(latent).all():
             raise ValueError("Actor returned non-finite values")
-        return latent, corrected, delta
+        return latent, None, None
 
 
 def open_onnx_session(entry: "ResidualEntry") -> Any:
@@ -388,6 +519,10 @@ class ResidualCorrector:
         self._history = np.zeros((HISTORY_STEPS, PROPRIO_DIM), np.float32)
         self._history_valid = False
         self._last_frame = -1
+        self._anchor = np.zeros(29, np.float32)
+        self._slope = np.zeros(29, np.float32)
+        self._initialized = False
+        self._written_end = 0
         self.decisions = 0
 
     def _observe(self, sample: np.ndarray, frame: int) -> np.ndarray:
@@ -437,7 +572,8 @@ class ResidualCorrector:
 
         reset = frame == 0
         start = 0 if reset else frame + DECISION_LEAD
-        if start + ACTION_FRAMES > len(raw_reference):
+        plan_frames = int(self.actor.plan_frames)
+        if start + plan_frames > len(raw_reference):
             raise StateNotReady("raw plan doesn't cover the correction window")
         locked = (
             np.zeros(FUTURE_FRAMES + 1, np.float32)
@@ -454,8 +590,31 @@ class ResidualCorrector:
                 corrected_tape[frame: frame + FUTURE_FRAMES + 1], quat
             ) * locked[:, None]
         raw = build_observation(history, preview, locked, queue)
-        base = raw_reference[start: start + ACTION_FRAMES]
+        base = raw_reference[start: start + plan_frames]
         latent, corrected, delta = self.actor.act(raw, base[None])
+        if not self.actor.per_frame:
+            if self._initialized and start != self._written_end:
+                raise RuntimeError(
+                    f"knot segment starts at {start}, previous segment ends at {self._written_end}"
+                )
+            anchor = (self._anchor[None] if self._initialized
+                      else np.zeros((1, 29), np.float32))
+            slope = (self._slope[None] if self._initialized
+                     else np.zeros((1, 29), np.float32))
+            action = latent.reshape(1, int(self.actor.knots), 29)
+            if self.actor.interpolation == "cubic_hermite":
+                decoded, end_slope = decode_hermite_knot_latent(action, anchor, slope, plan_frames)
+                self._slope = end_slope[0].copy()
+            else:
+                decoded = decode_knot_latent(action, anchor, plan_frames)
+            corrected, delta = bounded_joint_residual(
+                base[None], decoded, self.actor.lower, self.actor.upper,
+                residual_scale=self.actor.residual_scale,
+                residual_latent_gain=self.actor.residual_latent_gain,
+            )
+            self._anchor = decoded[0, -1].copy()
+            self._initialized = True
+            self._written_end = start + plan_frames
         self.decisions += 1
         return Correction(
             frame=frame,
