@@ -27,7 +27,7 @@ from omg.robots.g1.constants import G1_JOINT_NAMES
 from omg.tracking.holomotion.runtime import (
     HoloMotionTrackerSession, load_holomotion_metadata,
 )
-from joint_velocity import JointVelocityEstimator
+from joint_velocity import JointVelocityEstimator, JointVelocityLowPass
 
 MAX_PAIR_SKEW_S = 0.002          # unchanged contract: two 1 kHz periods
 
@@ -80,12 +80,17 @@ class NativeSensors:
     to the odometry source_timestamp is deserialized 鈥?one message, not 64.
     """
     def __init__(self, dq_source="qdiff"):
-        if dq_source not in {"qdiff", "raw"}:
+        if dq_source not in {"qdiff", "raw", "lowpass"}:
             raise ValueError(f"unsupported dq_source={dq_source!r}")
         self.dq_source = dq_source
         self._joint_velocity = (
             JointVelocityEstimator(joints=29, dt=0.02)
             if dq_source == "qdiff"
+            else None
+        )
+        self._joint_velocity_lp = (
+            JointVelocityLowPass(joints=29, fs=50.0, cutoff_hz=15.0)
+            if dq_source == "lowpass"
             else None
         )
         import rclpy
@@ -185,6 +190,8 @@ class NativeSensors:
             'joint_vel': (
                 self._joint_velocity.update(joint_pos)
                 if self._joint_velocity is not None
+                else self._joint_velocity_lp.update(raw_joint_vel)
+                if self._joint_velocity_lp is not None
                 else raw_joint_vel
             ),
             'root_quat_wxyz': np.asarray(low.imu_state.quaternion, np.float32),
@@ -208,6 +215,8 @@ class NativeSensors:
                 self.history.clear()
                 if self._joint_velocity is not None:
                     self._joint_velocity.reset()
+                if self._joint_velocity_lp is not None:
+                    self._joint_velocity_lp.reset()
             self.history.append(motion(paired_qpos[None], 1)[0])
             self.last_history_time = now
             self.last_history_stamp = self.stamps['odom']

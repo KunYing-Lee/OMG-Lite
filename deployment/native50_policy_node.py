@@ -559,9 +559,9 @@ def main():
     p.add_argument("--switch-seconds", type=float, default=1.0)
     p.add_argument(
         "--dq-source",
-        choices=("qdiff", "raw"),
+        choices=("qdiff", "raw", "lowpass"),
         default="qdiff",
-        help="joint velocity fed to the tracker: qdiff (default) or raw LowState dq",
+        help="joint velocity fed to the tracker: qdiff (default), raw LowState dq, or 15Hz causal low-pass",
     )
     p.add_argument("--residual", default="off", help="off | auto | <registry entry>")
     p.add_argument(

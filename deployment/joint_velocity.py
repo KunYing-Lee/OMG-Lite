@@ -1,15 +1,18 @@
-"""Causal joint-velocity estimator for tracker observations.
+"""Joint-velocity helpers for tracker observations.
 
-The real G1 LowState `motor_state.dq` carries a strong 24-25 Hz component that
-is absent from the simulator qvel used to train the HoloMotion tracker.  This
-helper reconstructs a clean velocity from measured joint positions with a
-one-frame causal difference, with an explicit first-frame zero and a reset
-hook for sensor discontinuities.
+The real G1 LowState `motor_state.dq` can contain a strong 24-25 Hz component
+that is absent from the simulator qvel used to train the HoloMotion tracker.
+Two fallbacks are provided:
+
+* JointVelocityEstimator: causal 50 Hz q difference, first frame zero.
+* JointVelocityLowPass: causal 15 Hz low-pass on the reported dq, preserving
+  more of the low-frequency motion than the difference estimator.
 """
 
 from __future__ import annotations
 
 import numpy as np
+from scipy.signal import butter, sosfilt
 
 
 class JointVelocityEstimator:
@@ -34,3 +37,18 @@ class JointVelocityEstimator:
         if self.max_abs > 0:
             np.clip(dq, -self.max_abs, self.max_abs, out=dq)
         return dq
+
+
+class JointVelocityLowPass:
+    def __init__(self, joints: int = 29, fs: float = 50.0, cutoff_hz: float = 15.0, order: int = 4):
+        self.joints = int(joints)
+        self.sos = butter(order, float(cutoff_hz) / (float(fs) / 2.0), btype="low", output="sos")
+        self.zi = np.zeros((self.sos.shape[0], 2, self.joints), np.float32)
+
+    def reset(self):
+        self.zi = np.zeros((self.sos.shape[0], 2, self.joints), np.float32)
+
+    def update(self, joint_vel):
+        x = np.asarray(joint_vel, dtype=np.float32).reshape(1, self.joints)
+        y, self.zi = sosfilt(self.sos, x, axis=0, zi=self.zi)
+        return y[0].astype(np.float32)
