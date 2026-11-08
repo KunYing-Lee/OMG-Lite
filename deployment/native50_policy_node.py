@@ -560,8 +560,8 @@ def main():
     p.add_argument(
         "--dq-source",
         choices=("qdiff", "raw", "lowpass"),
-        default="qdiff",
-        help="joint velocity fed to the tracker: qdiff (default), raw LowState dq, or 15Hz causal low-pass",
+        default="lowpass",
+        help="joint velocity fed to the tracker: 15Hz causal low-pass (default), qdiff, or raw LowState dq",
     )
     p.add_argument("--residual", default="off", help="off | auto | <registry entry>")
     p.add_argument(

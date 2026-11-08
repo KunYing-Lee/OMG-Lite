@@ -79,7 +79,7 @@ class NativeSensors:
     (timestamp ring, 256 x ~2 KB). When odometry advances, the sample closest
     to the odometry source_timestamp is deserialized 鈥?one message, not 64.
     """
-    def __init__(self, dq_source="qdiff"):
+    def __init__(self, dq_source="lowpass"):
         if dq_source not in {"qdiff", "raw", "lowpass"}:
             raise ValueError(f"unsupported dq_source={dq_source!r}")
         self.dq_source = dq_source
