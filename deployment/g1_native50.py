@@ -217,8 +217,18 @@ class NativeSensors:
         self.node.destroy_node()
 
     def startup_history(self):
+        # DDS can drop one or more 50Hz odometry samples between the operator
+        # pressing B and this callback.  Fill the bounded 10-frame window here
+        # instead of failing the whole motion activation.
         if len(self.history) != 10:
-            raise RuntimeError('Ten fresh 50Hz sensor history frames are required')
+            deadline = time.monotonic() + 1.0
+            while len(self.history) < 10 and time.monotonic() < deadline:
+                self.read(record_history=True)
+                time.sleep(0.005)
+        if len(self.history) != 10:
+            raise RuntimeError(
+                f'Ten fresh 50Hz sensor history frames are required '
+                f'(have {len(self.history)})')
         if time.monotonic()-self.last_history_time > .04:
             raise RuntimeError('Startup history is stale')
         return motion(np.asarray(self.history), 10)
