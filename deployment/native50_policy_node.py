@@ -41,6 +41,8 @@ class Native50Runtime(PolicyRuntime):
         self.bridge = None
         self.active = False
         self.failed = False
+        self._operator_stand = False
+        self._last_y = 0
         self.receiver = None
         self.corrector = None
         self.tape = None
@@ -94,10 +96,17 @@ class Native50Runtime(PolicyRuntime):
         self.recorder.update_meta(**meta)
 
     def handle_low_state(self, msg):
-        # Y must also cancel an initial plan before motion mode is entered.
+        # Y cancels an initial plan before activation, and is a controlled
+        # stand request while walking: motion -> velocity/stand mode without
+        # an immediate damping cutoff.  SELECT remains the hard stop.
         self.port.remote_controller.set(msg.wireless_remote)
-        if self.pending is not None and self.port.remote_controller.button[KeyMap.Y]:
-            self._close_episode()
+        y = int(self.port.remote_controller.button[KeyMap.Y])
+        if y and not self._last_y:
+            if self.pending is not None:
+                self._close_episode()
+            elif self.active:
+                self._operator_stand = True
+        self._last_y = y
         try:
             self._tau = np.asarray(
                 [float(m.tau_est) for m in msg.motor_state[:29]], np.float32
@@ -209,6 +218,14 @@ class Native50Runtime(PolicyRuntime):
             self.run_policy_step()
             return
         self.port.sensor_error = None
+        if self._operator_stand:
+            self._operator_stand = False
+            if self.active:
+                self.port.get_logger().warn(
+                    "Operator Y: controlled stop -> velocity/stand mode"
+                )
+                self.switch_to_velocity_mode("operator Y controlled stop")
+                return
         if self.pending is not None and self.pending.done():
             try:
                 self.pending.result()
