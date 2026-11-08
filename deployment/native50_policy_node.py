@@ -482,7 +482,9 @@ class Native50Node(HoloMotionPolicyNode):
         for _ in range(10):
             tracker.run(np.zeros((1, dim), np.float32))
         tracker.reset()
-        self.sensors = NativeSensors()
+        self.sensors = NativeSensors(
+            dq_source=getattr(self.args, "dq_source", "qdiff")
+        )
         self.stop_publisher = self.create_publisher(
             String, "/humanoid/tracking_stop", 10
         )
@@ -538,6 +540,12 @@ def main():
     p.add_argument("--text", default="raise hands")
     p.add_argument("--frames", type=int, default=250)
     p.add_argument("--switch-seconds", type=float, default=1.0)
+    p.add_argument(
+        "--dq-source",
+        choices=("qdiff", "raw"),
+        default="qdiff",
+        help="joint velocity fed to the tracker: qdiff (default) or raw LowState dq",
+    )
     p.add_argument("--residual", default="off", help="off | auto | <registry entry>")
     p.add_argument(
         "--residual-dir",
