@@ -495,8 +495,12 @@ class Correction:
     frame: int
     start: int                 # first frame of the corrected window (absolute)
     joints_g1: np.ndarray      # (25,29) corrected joints to write into the tape
-    latent: np.ndarray         # (725,)
+    latent: np.ndarray         # (725,) or (K*29,) knot latent
     delta: np.ndarray          # (25,29)
+    # Debug payloads; optional so old callers/tests remain valid.
+    raw_obs: np.ndarray | None = None      # (3455,) exact actor input
+    base: np.ndarray | None = None         # (25,36) raw plan block
+    corrected: np.ndarray | None = None    # (25,36) plan + delta block
 
 
 class ResidualCorrector:
@@ -622,4 +626,7 @@ class ResidualCorrector:
             joints_g1=corrected[0, :, 7:].copy(),
             latent=latent[0].copy(),
             delta=delta[0].copy(),
+            raw_obs=raw[0].copy(),
+            base=base.copy(),
+            corrected=np.asarray(corrected[0], np.float32).copy(),
         )

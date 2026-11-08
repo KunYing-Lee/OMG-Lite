@@ -22,6 +22,7 @@ from omg.realtime.deployment import DeploymentBridge
 from omg.realtime.native import RemotePlanner
 from omg.realtime.recording import Recorder
 from omg.realtime.reference_stream import ReferenceReceiver, encode_window
+from omg.tracking.holomotion.reference import gravity_orientation_wxyz
 
 from residual50 import (
     ACTION_FRAMES,
@@ -178,6 +179,8 @@ class Native50Runtime(PolicyRuntime):
         self.state.policy_enabled = False
         self.state.motion_in_progress = False
         self.port.get_logger().error("Native50 stopped: " + reason)
+        if self.recorder is not None:
+            self.recorder.flush_debug()
         self._close_episode()
 
     def switch_to_velocity_mode(self, reason=""):
@@ -334,6 +337,10 @@ class Native50Runtime(PolicyRuntime):
                             start=correction.start,
                             delta=correction.delta,
                             latent_norm=float(np.linalg.norm(correction.latent)),
+                            obs=correction.raw_obs,
+                            latent=correction.latent,
+                            base=correction.base,
+                            corrected=correction.corrected,
                         )
                 reference = self.tape
             packet = encode_window(reference, cursor, "live")
@@ -372,6 +379,17 @@ class Native50Runtime(PolicyRuntime):
             self.publish_current_action()
             if self.recorder is not None:
                 self._configure_recorder()
+                target = (
+                    action * self.port.motion_action_scale_onnx
+                    + self.port.motion_default_angles_onnx
+                )[self.port.motion_onnx_to_real]
+                target = np.asarray(target, np.float32)
+                limit_mask = np.zeros(29, bool)
+                if self.corrector is not None:
+                    lower = np.asarray(self.corrector.actor.lower, np.float32)
+                    upper = np.asarray(self.corrector.actor.upper, np.float32)
+                    limit_mask = (target < lower) | (target > upper)
+                policy = self.port.native_policy
                 self.recorder.frame(
                     frame=frame,
                     t=time.monotonic(),
@@ -387,6 +405,15 @@ class Native50Runtime(PolicyRuntime):
                     encode_ms=(t2a - t2) * 1000.0,
                     consume_ms=(t3 - t2a) * 1000.0,
                     step_ms=(t4 - t3) * 1000.0,
+                    action_raw=getattr(policy, "last_action_raw", action),
+                    dq_raw=state.get("joint_vel_raw", state["joint_vel"]),
+                    target=target,
+                    final_target=target,
+                    action_clip=getattr(policy, "last_action_clipped", np.zeros(29, bool)),
+                    target_limit=limit_mask,
+                    ref_plan=np.asarray(qpos[cursor], np.float32),
+                    ref_corrected=np.asarray(reference[cursor], np.float32),
+                    gravity=gravity_orientation_wxyz(state["root_quat_wxyz"]),
                 )
             if frame % 50 == 0:
                 try:

@@ -196,6 +196,9 @@ class NativeSensors:
             ),
             'root_quat_wxyz': np.asarray(low.imu_state.quaternion, np.float32),
             'gyro': np.asarray(low.imu_state.gyroscope, np.float32),
+            # Keep the unfiltered LowState dq for diagnostics; tracker uses
+            # only 'joint_vel' (filtered).
+            'joint_vel_raw': raw_joint_vel,
         }
         qpos = np.concatenate((np.asarray(odom.position[:2], np.float32),
                                [odom.body_height], state['root_quat_wxyz'], state['joint_pos'])).astype(np.float32)
