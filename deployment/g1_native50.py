@@ -27,6 +27,7 @@ from omg.robots.g1.constants import G1_JOINT_NAMES
 from omg.tracking.holomotion.runtime import (
     HoloMotionTrackerSession, load_holomotion_metadata,
 )
+from joint_velocity import JointVelocityEstimator, JointVelocityLowPass
 
 MAX_PAIR_SKEW_S = 0.002          # unchanged contract: two 1 kHz periods
 
@@ -76,9 +77,22 @@ class NativeSensors:
 
     Pairing path: every read drains LowState as raw bytes into `low_raw`
     (timestamp ring, 256 x ~2 KB). When odometry advances, the sample closest
-    to the odometry source_timestamp is deserialized — one message, not 64.
+    to the odometry source_timestamp is deserialized 鈥?one message, not 64.
     """
-    def __init__(self):
+    def __init__(self, dq_source="lowpass"):
+        if dq_source not in {"qdiff", "raw", "lowpass"}:
+            raise ValueError(f"unsupported dq_source={dq_source!r}")
+        self.dq_source = dq_source
+        self._joint_velocity = (
+            JointVelocityEstimator(joints=29, dt=0.02)
+            if dq_source == "qdiff"
+            else None
+        )
+        self._joint_velocity_lp = (
+            JointVelocityLowPass(joints=29, fs=50.0, cutoff_hz=15.0)
+            if dq_source == "lowpass"
+            else None
+        )
         import rclpy
         from rclpy.qos import QoSProfile, ReliabilityPolicy
         from unitree_hg.msg import LowState
@@ -169,11 +183,22 @@ class NativeSensors:
             raise RuntimeError(f'Native sensor age/skew exceeds sampling contract: low={now-lt:.4f}s odom={now-ot:.4f}s skew={abs(lt-ot):.4f}s')
         if int(odom.error_code) != 0 or not np.isfinite(odom.body_height) or odom.body_height <= 0:
             raise RuntimeError('Native body-height source is invalid')
+        joint_pos = np.asarray([m.q for m in low.motor_state[:29]], np.float32)
+        raw_joint_vel = np.asarray([m.dq for m in low.motor_state[:29]], np.float32)
         state = {
-            'joint_pos': np.asarray([m.q for m in low.motor_state[:29]], np.float32),
-            'joint_vel': np.asarray([m.dq for m in low.motor_state[:29]], np.float32),
+            'joint_pos': joint_pos,
+            'joint_vel': (
+                self._joint_velocity.update(joint_pos)
+                if self._joint_velocity is not None
+                else self._joint_velocity_lp.update(raw_joint_vel)
+                if self._joint_velocity_lp is not None
+                else raw_joint_vel
+            ),
             'root_quat_wxyz': np.asarray(low.imu_state.quaternion, np.float32),
             'gyro': np.asarray(low.imu_state.gyroscope, np.float32),
+            # Keep the unfiltered LowState dq for diagnostics; tracker uses
+            # only 'joint_vel' (filtered).
+            'joint_vel_raw': raw_joint_vel,
         }
         qpos = np.concatenate((np.asarray(odom.position[:2], np.float32),
                                [odom.body_height], state['root_quat_wxyz'], state['joint_pos'])).astype(np.float32)
@@ -191,6 +216,10 @@ class NativeSensors:
                                           [m.q for m in paired.motor_state[:29]])).astype(np.float32)
             if self.last_history_stamp is not None and (self.stamps['odom']-self.last_history_stamp)/1e9 > .04:
                 self.history.clear()
+                if self._joint_velocity is not None:
+                    self._joint_velocity.reset()
+                if self._joint_velocity_lp is not None:
+                    self._joint_velocity_lp.reset()
             self.history.append(motion(paired_qpos[None], 1)[0])
             self.last_history_time = now
             self.last_history_stamp = self.stamps['odom']
@@ -200,8 +229,18 @@ class NativeSensors:
         self.node.destroy_node()
 
     def startup_history(self):
+        # DDS can drop one or more 50Hz odometry samples between the operator
+        # pressing B and this callback.  Fill the bounded 10-frame window here
+        # instead of failing the whole motion activation.
         if len(self.history) != 10:
-            raise RuntimeError('Ten fresh 50Hz sensor history frames are required')
+            deadline = time.monotonic() + 1.0
+            while len(self.history) < 10 and time.monotonic() < deadline:
+                self.read(record_history=True)
+                time.sleep(0.005)
+        if len(self.history) != 10:
+            raise RuntimeError(
+                f'Ten fresh 50Hz sensor history frames are required '
+                f'(have {len(self.history)})')
         if time.monotonic()-self.last_history_time > .04:
             raise RuntimeError('Startup history is stale')
         return motion(np.asarray(self.history), 10)
@@ -220,3 +259,4 @@ def load_tracker(path):
     handles = SimpleNamespace(onnx_to_g1=mapping, default_joint_pos=metadata.default_joint_pos)
     tracker = HoloMotionTrackerSession(session, metadata)
     return PreviewPolicy(tracker, metadata, handles)
+

@@ -22,6 +22,7 @@ from omg.realtime.deployment import DeploymentBridge
 from omg.realtime.native import RemotePlanner
 from omg.realtime.recording import Recorder
 from omg.realtime.reference_stream import ReferenceReceiver, encode_window
+from omg.tracking.holomotion.reference import gravity_orientation_wxyz
 
 from residual50 import (
     ACTION_FRAMES,
@@ -41,6 +42,8 @@ class Native50Runtime(PolicyRuntime):
         self.bridge = None
         self.active = False
         self.failed = False
+        self._operator_stand = False
+        self._last_y = 0
         self.receiver = None
         self.corrector = None
         self.tape = None
@@ -94,10 +97,17 @@ class Native50Runtime(PolicyRuntime):
         self.recorder.update_meta(**meta)
 
     def handle_low_state(self, msg):
-        # Y must also cancel an initial plan before motion mode is entered.
+        # Y cancels an initial plan before activation, and is a controlled
+        # stand request while walking: motion -> velocity/stand mode without
+        # an immediate damping cutoff.  SELECT remains the hard stop.
         self.port.remote_controller.set(msg.wireless_remote)
-        if self.pending is not None and self.port.remote_controller.button[KeyMap.Y]:
-            self._close_episode()
+        y = int(self.port.remote_controller.button[KeyMap.Y])
+        if y and not self._last_y:
+            if self.pending is not None:
+                self._close_episode()
+            elif self.active:
+                self._operator_stand = True
+        self._last_y = y
         try:
             self._tau = np.asarray(
                 [float(m.tau_est) for m in msg.motor_state[:29]], np.float32
@@ -169,6 +179,8 @@ class Native50Runtime(PolicyRuntime):
         self.state.policy_enabled = False
         self.state.motion_in_progress = False
         self.port.get_logger().error("Native50 stopped: " + reason)
+        if self.recorder is not None:
+            self.recorder.flush_debug()
         self._close_episode()
 
     def switch_to_velocity_mode(self, reason=""):
@@ -209,6 +221,14 @@ class Native50Runtime(PolicyRuntime):
             self.run_policy_step()
             return
         self.port.sensor_error = None
+        if self._operator_stand:
+            self._operator_stand = False
+            if self.active:
+                self.port.get_logger().warn(
+                    "Operator Y: controlled stop -> velocity/stand mode"
+                )
+                self.switch_to_velocity_mode("operator Y controlled stop")
+                return
         if self.pending is not None and self.pending.done():
             try:
                 self.pending.result()
@@ -317,6 +337,10 @@ class Native50Runtime(PolicyRuntime):
                             start=correction.start,
                             delta=correction.delta,
                             latent_norm=float(np.linalg.norm(correction.latent)),
+                            obs=correction.raw_obs,
+                            latent=correction.latent,
+                            base=correction.base,
+                            corrected=correction.corrected,
                         )
                 reference = self.tape
             packet = encode_window(reference, cursor, "live")
@@ -325,7 +349,10 @@ class Native50Runtime(PolicyRuntime):
             t3 = time.monotonic()
             action = self.port.native_policy.step(features, local, state)
             t4 = time.monotonic()
-            slack = 0.02  # one 50 Hz period for every tick
+            # The first residual/tracker tick is cold and can be 20.2 ms.
+            # Allow a slightly wider startup window only for the first frames;
+            # steady-state ticks stay on the strict 20 ms budget.
+            slack = 0.035 if frame < 3 else 0.02
             if time.monotonic() >= target + slack:
                 raise TimeoutError(
                     "Tracker missed its20ms control interval (frame=%d, "
@@ -352,6 +379,17 @@ class Native50Runtime(PolicyRuntime):
             self.publish_current_action()
             if self.recorder is not None:
                 self._configure_recorder()
+                target = (
+                    action * self.port.motion_action_scale_onnx
+                    + self.port.motion_default_angles_onnx
+                )[self.port.motion_onnx_to_real]
+                target = np.asarray(target, np.float32)
+                limit_mask = np.zeros(29, bool)
+                if self.corrector is not None:
+                    lower = np.asarray(self.corrector.actor.lower, np.float32)
+                    upper = np.asarray(self.corrector.actor.upper, np.float32)
+                    limit_mask = (target < lower) | (target > upper)
+                policy = self.port.native_policy
                 self.recorder.frame(
                     frame=frame,
                     t=time.monotonic(),
@@ -367,6 +405,15 @@ class Native50Runtime(PolicyRuntime):
                     encode_ms=(t2a - t2) * 1000.0,
                     consume_ms=(t3 - t2a) * 1000.0,
                     step_ms=(t4 - t3) * 1000.0,
+                    action_raw=getattr(policy, "last_action_raw", action),
+                    dq_raw=state.get("joint_vel_raw", state["joint_vel"]),
+                    target=target,
+                    final_target=target,
+                    action_clip=getattr(policy, "last_action_clipped", np.zeros(29, bool)),
+                    target_limit=limit_mask,
+                    ref_plan=np.asarray(qpos[cursor], np.float32),
+                    ref_corrected=np.asarray(reference[cursor], np.float32),
+                    gravity=gravity_orientation_wxyz(state["root_quat_wxyz"]),
                 )
             if frame % 50 == 0:
                 try:
@@ -482,7 +529,9 @@ class Native50Node(HoloMotionPolicyNode):
         for _ in range(10):
             tracker.run(np.zeros((1, dim), np.float32))
         tracker.reset()
-        self.sensors = NativeSensors()
+        self.sensors = NativeSensors(
+            dq_source=getattr(self.args, "dq_source", "qdiff")
+        )
         self.stop_publisher = self.create_publisher(
             String, "/humanoid/tracking_stop", 10
         )
@@ -538,6 +587,12 @@ def main():
     p.add_argument("--text", default="raise hands")
     p.add_argument("--frames", type=int, default=250)
     p.add_argument("--switch-seconds", type=float, default=1.0)
+    p.add_argument(
+        "--dq-source",
+        choices=("qdiff", "raw", "lowpass"),
+        default="lowpass",
+        help="joint velocity fed to the tracker: 15Hz causal low-pass (default), qdiff, or raw LowState dq",
+    )
     p.add_argument("--residual", default="off", help="off | auto | <registry entry>")
     p.add_argument(
         "--residual-dir",

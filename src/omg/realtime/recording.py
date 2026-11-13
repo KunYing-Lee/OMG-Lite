@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-RECORD_VERSION = 1
+RECORD_VERSION = 2
 FRAME_COLUMNS = (
     ["frame", "t"]
     + ["action%d" % i for i in range(29)]
@@ -51,6 +51,7 @@ class Recorder:
         self.frames_path = Path(str(self.base) + ".frames.csv")
         self.plans_path = Path(str(self.base) + ".plans.npz")
         self.decisions_path = Path(str(self.base) + ".decisions.npz")
+        self.debug_path = Path(str(self.base) + ".debug.npz")
         self.meta_path = Path(str(self.base) + ".meta.json")
 
         self.meta = dict(meta or {})
@@ -66,6 +67,17 @@ class Recorder:
 
         self._plans: list[dict] = []
         self._decisions: list[dict] = []
+        # Per-frame diagnostic payloads not needed by the compact CSV: raw
+        # vs filtered dq, raw vs mapped tracker action, target and limits,
+        # per-frame raw/corrected reference, gravity.
+        self._debug = {
+            key: [] for key in (
+                "frame", "t", "action_raw", "action", "dq_raw", "dq",
+                "target", "final_target", "action_clip", "target_limit",
+                "ref_plan", "ref_corrected", "gravity",
+            )
+        }
+        self._debug_frames = 0
         self._lock = threading.Lock()
         self._dirty = threading.Event()
         self._stop = threading.Event()
@@ -142,12 +154,17 @@ class Recorder:
         os.replace(tmp, path)
 
     # -- M2 events --------------------------------------------------------
-    def decision(self, *, frame, start, delta, latent_norm=None) -> None:
+    def decision(self, *, frame, start, delta, latent_norm=None,
+                 obs=None, latent=None, base=None, corrected=None) -> None:
         delta = np.asarray(delta, dtype=np.float32)
         with self._lock:
             self._decisions.append(dict(
                 frame=int(frame), start=int(start), delta=delta,
                 latent_norm=None if latent_norm is None else float(latent_norm),
+                obs=None if obs is None else np.asarray(obs, np.float32).copy(),
+                latent=None if latent is None else np.asarray(latent, np.float32).copy(),
+                base=None if base is None else np.asarray(base, np.float32).copy(),
+                corrected=None if corrected is None else np.asarray(corrected, np.float32).copy(),
             ))
         self._dirty.set()
 
@@ -156,6 +173,10 @@ class Recorder:
             arrays = dict(
                 frame=np.zeros(0, np.int64), start=np.zeros(0, np.int64),
                 latent_norm=np.zeros(0, np.float64), delta=np.zeros((0, 0, 29), np.float32),
+                obs=np.zeros((0, 0), np.float32),
+                latent=np.zeros((0, 0), np.float32),
+                base=np.zeros((0, 0, 36), np.float32),
+                corrected=np.zeros((0, 0, 36), np.float32),
             )
         else:
             arrays = dict(
@@ -165,6 +186,14 @@ class Recorder:
                                       for d in decisions], np.float64),
                 delta=np.stack([d["delta"] for d in decisions]),
             )
+            for key in ("obs", "latent", "base", "corrected"):
+                values = [d.get(key) for d in decisions]
+                if all(value is not None for value in values):
+                    arrays[key] = np.stack(values)
+                elif any(value is not None for value in values):
+                    # Mixed old/new decisions; keep an object array rather than
+                    # silently dropping the diagnostic payloads.
+                    arrays[key] = np.asarray(values, dtype=object)
         self._atomic_savez(self.decisions_path, arrays)
 
     def _writer_loop(self) -> None:
@@ -188,7 +217,10 @@ class Recorder:
 
     # -- per-frame --------------------------------------------------------
     def frame(self, *, frame, t, action, q, dq, tau, quat, gyro, residual,
-              read_ms=0.0, tick_ms=0.0, encode_ms=0.0, consume_ms=0.0, step_ms=0.0) -> None:
+              read_ms=0.0, tick_ms=0.0, encode_ms=0.0, consume_ms=0.0, step_ms=0.0,
+              action_raw=None, dq_raw=None, target=None, final_target=None,
+              action_clip=None, target_limit=None,
+              ref_plan=None, ref_corrected=None, gravity=None) -> None:
         row = [int(frame), float(t)]
         row += np.asarray(action, np.float32).reshape(-1)[:29].tolist()
         row += np.asarray(q, np.float32).reshape(-1)[:29].tolist()
@@ -204,6 +236,41 @@ class Recorder:
         self._frame_file.flush()
         self._frames += 1
 
+        # Optional diagnostic payload.  Node deployments that pass the new
+        # arguments get <base>.debug.npz; older callers keep the old files.
+        if action_raw is not None:
+            values = {
+                "frame": int(frame),
+                "t": float(t),
+                "action_raw": np.asarray(action_raw, np.float32).reshape(29),
+                "action": np.asarray(action, np.float32).reshape(29),
+                "dq_raw": np.asarray(dq_raw if dq_raw is not None else dq, np.float32).reshape(29),
+                "dq": np.asarray(dq, np.float32).reshape(29),
+                "target": np.asarray(target if target is not None else action, np.float32).reshape(29),
+                "final_target": np.asarray(final_target if final_target is not None else target if target is not None else action, np.float32).reshape(29),
+                "action_clip": np.asarray(action_clip if action_clip is not None else np.zeros(29), bool).reshape(29),
+                "target_limit": np.asarray(target_limit if target_limit is not None else np.zeros(29), bool).reshape(29),
+                "ref_plan": np.asarray(ref_plan if ref_plan is not None else np.zeros(36), np.float32).reshape(36),
+                "ref_corrected": np.asarray(ref_corrected if ref_corrected is not None else ref_plan if ref_plan is not None else np.zeros(36), np.float32).reshape(36),
+                "gravity": np.asarray(gravity if gravity is not None else np.zeros(3), np.float32).reshape(3),
+            }
+            for key, value in values.items():
+                self._debug[key].append(value)
+            self._debug_frames += 1
+
+    def _write_debug(self) -> None:
+        if self._debug_frames == 0:
+            return
+        arrays = {}
+        for key, values in self._debug.items():
+            arrays[key] = np.stack(values)
+        self._atomic_savez(self.debug_path, arrays)
+
+    def flush_debug(self) -> None:
+        """Persist per-frame diagnostics on a stop/fault, not only on close."""
+        with self._lock:
+            self._write_debug()
+
     def close(self) -> None:
         if self._closed:
             return
@@ -217,6 +284,7 @@ class Recorder:
         try:
             self._write_plans(plans)
             self._write_decisions(decisions)
+            self._write_debug()
         except Exception as error:  # noqa: BLE001 - keep the shutdown path alive
             self._writer_error = error
         finally:
@@ -225,5 +293,6 @@ class Recorder:
                 frames=self._frames,
                 plans=len(plans),
                 decisions=len(decisions),
+                debug_frames=self._debug_frames,
                 writer_error=None if self._writer_error is None else repr(self._writer_error),
             )

@@ -18,6 +18,8 @@ class PreviewPolicy:
         self.metadata = metadata
         self.handles = handles
         self.last_action = np.zeros(29, np.float32)
+        self.last_action_raw = np.zeros(29, np.float32)
+        self.last_action_clipped = np.zeros(29, bool)
         self.history = {}
 
     def step(self, features, cursor, robot_state):
@@ -43,9 +45,11 @@ class PreviewPolicy:
             robot_history=self.history,
             robot_state=robot_state,
         )
-        action = np.asarray(self.tracker.run(obs), np.float32).reshape(29)
-        if not np.isfinite(action).all():
+        raw_action = np.asarray(self.tracker.run(obs), np.float32).reshape(29)
+        if not np.isfinite(raw_action).all():
             raise FloatingPointError("Nonfinite tracker action")
-        action = np.clip(action, -10.0, 10.0)
+        action = np.clip(raw_action, -10.0, 10.0)
+        self.last_action_raw = raw_action.copy()
+        self.last_action_clipped = (raw_action != action)
         self.last_action = action.copy()
         return action
